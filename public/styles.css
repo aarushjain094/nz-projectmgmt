@@ -1235,6 +1235,7 @@ select {
   background: #fcfdff;
   display: grid;
   gap: 8px;
+  align-content: start;
 }
 
 .employee-card h4 {
@@ -1268,8 +1269,28 @@ select {
 .employee-task-list {
   margin: 0;
   padding-left: 28px;
-  display: grid;
+  display: none;
   gap: 9px;
+}
+
+.employee-task-list.expanded {
+  display: grid;
+}
+
+.employee-tasks-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 1rem;
+  padding: 0 2px;
+  line-height: 1;
+  transition: transform 0.2s;
+  margin-left: auto;
+}
+
+.employee-tasks-toggle.expanded {
+  transform: rotate(90deg);
 }
 
 .employee-task-list li {

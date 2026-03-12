@@ -1689,11 +1689,17 @@ async function getProjectSections(projectId) {
   if (!projectId) return [];
   const localSections = state.projectDetail.project?.id === projectId
     ? [...new Set([
+        ...(state.projectDetail.project?.sections || []),
         ...state.projectDetail.sections,
         ...state.projectDetail.tasks.map((task) => task.section).filter(Boolean),
       ])]
     : [];
   if (localSections.length) return localSections.sort((a, b) => a.localeCompare(b));
+
+  const project = state.projects.find((entry) => entry.id === projectId);
+  if (project?.sections?.length) {
+    return [...new Set(project.sections)].sort((a, b) => a.localeCompare(b));
+  }
 
   const [outstanding, done] = await Promise.all([
     api(`/api/tasks?projectId=${projectId}&status=outstanding`).catch(() => []),
@@ -2419,6 +2425,7 @@ function renderTeamWorkload(users, outstanding, overdue, done, filters = { produ
             return `<li><strong>${escapeHtml(task.title)}</strong><span>${dueText} | ${capitalizeTaskStatus(task.status)}</span></li>`;
           }).join("")
         : `<li class="muted">No outstanding tasks.</li>`;
+      const cardId = `ec-${entry.user.id}`;
       return `
         <article class="employee-card">
           <div class="team-setting-head">
@@ -2430,12 +2437,22 @@ function renderTeamWorkload(users, outstanding, overdue, done, filters = { produ
             <span>Outstanding: ${entry.outstanding.length}</span>
             <span>Overdue: ${entry.overdueCount}</span>
             <span>Done: ${entry.doneCount}</span>
+            ${entry.outstanding.length > 0 ? `<button class="employee-tasks-toggle" data-target="${cardId}" type="button" title="Show tasks">›</button>` : ""}
           </div>
-          <ul class="employee-task-list">${taskItems}</ul>
+          <ul class="employee-task-list" id="${cardId}">${taskItems}</ul>
         </article>`;
     }).join("");
 
   teamWorkload.innerHTML = cards || `<p class="muted">No team members found.</p>`;
+
+  teamWorkload.querySelectorAll(".employee-tasks-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const list = document.getElementById(btn.dataset.target);
+      const expanded = list.classList.toggle("expanded");
+      btn.classList.toggle("expanded", expanded);
+      btn.title = expanded ? "Hide tasks" : "Show tasks";
+    });
+  });
 }
 
 function renderTeamSettings(users) {
@@ -2960,7 +2977,11 @@ async function openProjectDetail(projectId) {
   ]);
   state.projectDetail.project = project;
   state.projectDetail.tasks = [...outstanding, ...done];
-  state.projectDetail.sections = [...new Set([...outstanding, ...done].map((t) => t.section).filter(Boolean))];
+  state.projectDetail.sections = [...new Set([
+    ...(project.sections || []),
+    ...outstanding.map((t) => t.section).filter(Boolean),
+    ...done.map((t) => t.section).filter(Boolean),
+  ])];
   state.projectDetail.activeSection = "";
   state.projectDetail.ganttView = "auto";
   document.querySelectorAll("#ganttViewPills .gantt-view-pill").forEach((p) => p.classList.toggle("active", p.dataset.view === "auto"));
@@ -3111,28 +3132,36 @@ function bindSectionManagement() {
   const addBtn = document.getElementById("pdAddSectionBtn");
   if (!preset || !addBtn) return;
 
-  preset.addEventListener("change", () => {
+  preset.onchange = () => {
     if (preset.value === "__custom__") {
       customInput.classList.remove("hidden");
       customInput.focus();
     } else {
       customInput.classList.add("hidden");
     }
-  });
+  };
 
-  addBtn.addEventListener("click", async () => {
+  addBtn.onclick = async () => {
     const name = preset.value === "__custom__"
       ? customInput.value.trim()
       : preset.value.trim();
-    if (!name || name === "__custom__") return;
-    // Mark the active section so new quick-add tasks go here
-    state.projectDetail.activeSection = name;
-    // Track section in state so it appears in Gantt even before tasks are added
-    if (!state.projectDetail.sections.includes(name)) {
-      state.projectDetail.sections.push(name);
-    }
-    // Re-render planner so new section row is immediately visible
-    renderProjectPlanner();
+    if (!name || name === "__custom__" || !state.projectDetail.project) return;
+
+    const nextSections = [...new Set([...(state.projectDetail.project.sections || []), ...state.projectDetail.sections, name])];
+    addBtn.disabled = true;
+    try {
+      const updatedProject = await api(`/api/projects/${state.projectDetail.project.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ sections: nextSections }),
+      });
+      const projectIdx = state.projects.findIndex((entry) => entry.id === updatedProject.id);
+      if (projectIdx !== -1) {
+        state.projects[projectIdx] = { ...state.projects[projectIdx], ...updatedProject };
+      }
+      state.projectDetail.project = { ...state.projectDetail.project, ...updatedProject };
+      state.projectDetail.sections = nextSections;
+      state.projectDetail.activeSection = name;
+      renderProjectPlanner();
     // Pre-fill quick-add with section context
     if (projectQuickAddInput) {
       projectQuickAddInput.dataset.section = name;
@@ -3142,7 +3171,10 @@ function bindSectionManagement() {
     preset.value = "";
     customInput.value = "";
     customInput.classList.add("hidden");
-  });
+    } finally {
+      addBtn.disabled = false;
+    }
+  };
 }
 
 async function saveProjectPlan() {

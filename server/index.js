@@ -69,6 +69,7 @@ function normalizeDb(db) {
     project.scope = project.scope === "team" ? "team" : "personal";
     project.memberIds = Array.isArray(project.memberIds) ? project.memberIds : [];
     project.deadline = typeof project.deadline === "string" ? project.deadline : null;
+    project.sections = sanitizeProjectSections(project.sections);
   }
 
   for (const task of db.tasks) {
@@ -79,6 +80,16 @@ function normalizeDb(db) {
   }
 
   return db;
+}
+
+function sanitizeProjectSections(sections) {
+  if (!Array.isArray(sections)) return [];
+  return [...new Set(
+    sections
+      .map((value) => (typeof value === "string" ? value.trim() : ""))
+      .filter(Boolean)
+      .slice(0, 50)
+  )];
 }
 
 function taskAccessibleTo(task, user, scope = "view") {
@@ -441,6 +452,7 @@ app.post("/api/projects", requireAuth, (req, res) => {
     memberIds = [],
     product = null,
     client = null,
+    sections = [],
   } = req.body ?? {};
 
   if (!title || typeof title !== "string" || !title.trim()) {
@@ -461,6 +473,7 @@ app.post("/api/projects", requireAuth, (req, res) => {
     deadline: typeof deadline === "string" ? deadline : null,
     product: typeof product === "string" ? product || null : null,
     client: typeof client === "string" ? client.trim() || null : null,
+    sections: sanitizeProjectSections(sections),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -477,7 +490,7 @@ app.patch("/api/projects/:id", requireAuth, (req, res) => {
   if (!project) return res.status(404).json({ error: "Project not found" });
   if (!projectManageableBy(project, user)) return res.status(403).json({ error: "Not authorized" });
 
-  const { title, description, deadline, memberIds, product, client } = req.body ?? {};
+  const { title, description, deadline, memberIds, product, client, sections } = req.body ?? {};
   if (typeof title === "string" && title.trim()) project.title = title.trim();
   if (typeof description === "string") project.description = description.trim();
   if (deadline !== undefined) project.deadline = typeof deadline === "string" && deadline ? deadline : null;
@@ -486,6 +499,7 @@ app.patch("/api/projects/:id", requireAuth, (req, res) => {
   }
   if (product !== undefined) project.product = typeof product === "string" ? product || null : null;
   if (client !== undefined) project.client = typeof client === "string" ? client.trim() || null : null;
+  if (sections !== undefined) project.sections = sanitizeProjectSections(sections);
   project.updatedAt = new Date().toISOString();
 
   saveDb(db);

@@ -271,6 +271,26 @@ describe("Projects: Access Control", () => {
     assert.ok(res.body.id);
   });
 
+  test("project sections are persisted on create and patch", async () => {
+    const create = await req("POST", `${base}/api/projects`, {
+      title: "Sectioned Project",
+      memberIds: [],
+      sections: ["Planning", "Development", "Planning", " "],
+    }, mgrToken);
+    assert.equal(create.status, 201);
+    assert.deepEqual(create.body.sections, ["Planning", "Development"]);
+
+    const patch = await req("PATCH", `${base}/api/projects/${create.body.id}`, {
+      sections: ["Review", "Launch", "Review"],
+    }, mgrToken);
+    assert.equal(patch.status, 200);
+    assert.deepEqual(patch.body.sections, ["Review", "Launch"]);
+
+    const list = await req("GET", `${base}/api/projects`, null, mgrToken);
+    const persisted = list.body.find((project) => project.id === create.body.id);
+    assert.deepEqual(persisted.sections, ["Review", "Launch"]);
+  });
+
   test("member CANNOT delete a project they do not own", async () => {
     // Manager creates a project; member A (not owner) tries to delete it
     const proj = await req("POST", `${base}/api/projects`, { title: "Manager Only Project", memberIds: [] }, mgrToken);
