@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nyalazone Project Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Login -->
+      <section id="loginView" class="auth-shell">
+        <div class="login-card fade-in">
+          <div class="login-logo-wrap">
+            <img src="https://nyalazone.ai/wp-content/uploads/2025/04/NZ_AI_Col.png" alt="Nyalazone" class="login-logo" />
+          </div>
+          <h1 class="login-title">Project Tracker</h1>
+          <p class="login-subtitle">Sign in to your workspace</p>
+          <form id="loginForm" class="login-form">
+            <div class="login-field">
+              <label class="login-label">Email</label>
+              <input id="emailInput" type="email" class="login-input" placeholder="you@nyalazone.ai" required />
+            </div>
+            <div class="login-field">
+              <label class="login-label">Password</label>
+              <input id="passwordInput" type="password" class="login-input" placeholder="••••••••" required />
+            </div>
+            <button type="submit" class="btn login-btn">Sign in</button>
+          </form>
+          <p id="loginError" class="login-error"></p>
+          <div class="login-footer-links">
+            <button type="button" id="showForgotBtn" class="auth-link-btn">Forgot password?</button>
+            <button type="button" id="showRegisterBtn" class="auth-link-btn">Create account</button>
+          </div>
+          <div class="login-hints">
+            <p>manager@nyalazone.internal / demo123</p>
+            <p>member@nyalazone.internal / demo123</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Register -->
+      <section id="registerView" class="auth-shell hidden">
+        <div class="login-card fade-in">
+          <div class="login-logo-wrap">
+            <img src="https://nyalazone.ai/wp-content/uploads/2025/04/NZ_AI_Col.png" alt="Nyalazone" class="login-logo" />
+          </div>
+          <h1 class="login-title">Create Account</h1>
+          <p class="login-subtitle">Join your team's workspace</p>
+          <form id="registerForm" class="login-form">
+            <div class="login-field">
+              <label class="login-label">Full Name</label>
+              <input id="regName" type="text" class="login-input" placeholder="Your name" required />
+            </div>
+            <div class="login-field">
+              <label class="login-label">Email</label>
+              <input id="regEmail" type="email" class="login-input" placeholder="you@nyalazone.ai" required />
+            </div>
+            <div class="login-field">
+              <label class="login-label">Password</label>
+              <input id="regPassword" type="password" class="login-input" placeholder="Min. 6 characters" required />
+            </div>
+            <div class="login-field">
+              <label class="login-label">Confirm Password</label>
+              <input id="regConfirm" type="password" class="login-input" placeholder="Repeat password" required />
+            </div>
+            <div class="login-field">
+              <label class="login-label">What is your role?</label>
+              <select id="regRole" class="login-input" required>
+                <option value="" disabled selected>Select your role</option>
+                <option value="Frontend Engineer">Frontend Engineer</option>
+                <option value="Backend Engineer">Backend Engineer</option>
+                <option value="Manager">Manager</option>
+                <option value="HR">HR</option>
+                <option value="Operations">Operations</option>
+              </select>
+            </div>
+            <button type="submit" class="btn login-btn">Create Account</button>
+          </form>
+          <p id="registerError" class="login-error"></p>
+          <div class="login-footer-links">
+            <button type="button" id="showLoginFromRegisterBtn" class="auth-link-btn">Back to sign in</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Forgot Password -->
+      <section id="forgotView" class="auth-shell hidden">
+        <div class="login-card fade-in">
+          <div class="login-logo-wrap">
+            <img src="https://nyalazone.ai/wp-content/uploads/2025/04/NZ_AI_Col.png" alt="Nyalazone" class="login-logo" />
+          </div>
+          <h1 class="login-title">Reset Password</h1>
+          <p class="login-subtitle">We'll send a reset link to your email</p>
+          <form id="forgotForm" class="login-form">
+            <div class="login-field">
+              <label class="login-label">Email</label>
+              <input id="forgotEmail" type="email" class="login-input" placeholder="you@nyalazone.ai" required />
+            </div>
+            <button type="submit" class="btn login-btn">Send Reset Link</button>
+          </form>
+          <p id="forgotMsg" class="login-error" style="color:#16a34a;"></p>
+          <div class="login-footer-links">
+            <button type="button" id="showLoginFromForgotBtn" class="auth-link-btn">Back to sign in</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Reset Password (via email token) -->
+      <section id="resetView" class="auth-shell hidden">
+        <div class="login-card fade-in">
+          <div class="login-logo-wrap">
+            <img src="https://nyalazone.ai/wp-content/uploads/2025/04/NZ_AI_Col.png" alt="Nyalazone" class="login-logo" />
+          </div>
+          <h1 class="login-title">Set New Password</h1>
+          <p class="login-subtitle">Choose a new password for your account</p>
+          <form id="resetForm" class="login-form">
+            <div class="login-field">
+              <label class="login-label">New Password</label>
+              <input id="resetPassword" type="password" class="login-input" placeholder="Min. 6 characters" required />
+            </div>
+            <div class="login-field">
+              <label class="login-label">Confirm Password</label>
+              <input id="resetConfirm" type="password" class="login-input" placeholder="Repeat password" required />
+            </div>
+            <button type="submit" class="btn login-btn">Set Password</button>
+          </form>
+          <p id="resetError" class="login-error"></p>
+        </div>
+      </section>
+
+      <section id="mainView" class="hidden">
+        <header class="navbar">
+          <div class="navbar-brand">
+            <img src="https://nyalazone.ai/wp-content/uploads/2025/04/NZ_AI_Col.png" alt="Nyalazone" class="navbar-logo" />
+            <span class="navbar-app-name">Project Tracker</span>
+          </div>
+          <nav class="navbar-nav" aria-label="Primary">
+            <button id="tasksNavBtn" class="nav-item active" data-tab="tasks" type="button">Tasks</button>
+            <button id="remindersNavBtn" class="nav-item" data-tab="reminders" type="button">Reminders</button>
+            <button id="projectsNavBtn" class="nav-item" data-tab="projects" type="button">Projects</button>
+            <button id="ganttNavBtn" class="nav-item" data-tab="gantt" type="button">Gantt</button>
+            <button id="managerNavBtn" class="nav-item hidden" data-tab="manager" type="button">Manager</button>
+          </nav>
+          <div class="navbar-right">
+            <span id="welcomeText" class="nav-user"></span>
+            <select id="topTimezoneSelect" class="nav-timezone-select" title="Timezone"></select>
+            <button id="changePasswordBtn" class="btn secondary small">Password</button>
+            <button id="logoutBtn" class="btn ghost small">Logout</button>
+          </div>
+        </header>
+
+        <main class="view-shell">
+          <section id="myWorkView" class="view-page">
+            <div class="mywork-layout">
+
+              <!-- Quick-add bar -->
+              <div class="quick-add-bar card">
+                <div class="quick-add-header">
+                  <span class="quick-add-title">What needs to be done?</span>
+                  <span class="quick-add-meta">Understands dates (e.g. "by 4/3") and auto-categorizes — press Enter to add</span>
+                </div>
+                <div class="quick-add-input-row">
+                  <span class="quick-add-icon">+</span>
+                  <input id="quickAddInput" type="text" placeholder='e.g. "Finish SOP for Leggero by 4/3" or "Fix API bug by friday"' autocomplete="off" />
+                </div>
+                <div id="quickAddFeedback" class="quick-add-feedback"></div>
+              </div>
+
+              <!-- Task Manager Card (single white card matching screenshot) -->
+              <div class="tm-wrapper card">
+                <div class="tm-header">
+                  <h2 class="tm-title">Task Manager</h2>
+                </div>
+
+                <div class="stats-row">
+                  <div class="stat-card">
+                    <div class="stat-top-row">
+                      <span class="stat-label">Total Tasks</span>
+                      <span class="stat-icon si-gray">ⓘ</span>
+                    </div>
+                    <span class="stat-value" id="statTotal">0</span>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-top-row">
+                      <span class="stat-label">Completed</span>
+                      <span class="stat-icon si-green">✓</span>
+                    </div>
+                    <span class="stat-value stat-green" id="statCompleted">0</span>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-top-row">
+                      <span class="stat-label">In Progress</span>
+                      <span class="stat-icon si-blue">ⓘ</span>
+                    </div>
+                    <span class="stat-value stat-blue" id="statInProgress">0</span>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-top-row">
+                      <span class="stat-label">Overdue</span>
+                      <span class="stat-icon si-red">⊕</span>
+                    </div>
+                    <span class="stat-value stat-red" id="statOverdue">0</span>
+                  </div>
+                </div>
+
+                <div class="task-filter-bar">
+                  <div class="search-wrap">
+                    <span class="search-glyph">&#128269;</span>
+                    <input id="taskSearch" type="text" placeholder="Search tasks..." />
+                  </div>
+                  <select id="filterStatus">
+                    <option value="">All Status</option>
+                    <option value="todo">To Do</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="done">Completed</option>
+                    <option value="deleted">Recently Deleted</option>
+                  </select>
+                  <select id="filterPriority">
+                    <option value="">All Priority</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                  <select id="filterDept">
+                    <option value="">All Categories</option>
+                    <option value="Operations">Operations</option>
+                    <option value="Frontend">Frontend</option>
+                    <option value="Backend">Backend</option>
+                    <option value="HR">HR</option>
+                  </select>
+                  <select id="filterProduct">
+                    <option value="">All Products</option>
+                    <option value="DMAP">DMAP</option>
+                    <option value="DDS">DDS</option>
+                    <option value="DCE">DCE</option>
+                    <option value="Leggero.ai">Leggero.ai</option>
+                  </select>
+                  <select id="filterClient">
+                    <option value="">All Clients</option>
+                  </select>
+                  <button id="addTaskBtn" class="btn dark" type="button">+ Add Task</button>
+                </div>
+
+                <div class="task-status-tabs">
+                  <button class="status-tab-btn active" data-status="all">All (<span id="tabAll">0</span>)</button>
+                  <button class="status-tab-btn" data-status="todo">To Do (<span id="tabTodo">0</span>)</button>
+                  <button class="status-tab-btn" data-status="in_progress">In Progress (<span id="tabInProgress">0</span>)</button>
+                  <button class="status-tab-btn" data-status="done">Completed (<span id="tabDone">0</span>)</button>
+                  <button class="status-tab-btn" data-status="deleted">Recently Deleted (<span id="tabDeleted">0</span>)</button>
+                </div>
+
+                <div id="taskTableBody" class="task-table-body"></div>
+              </div>
+
+              <!-- Calendar -->
+              <section class="panel card">
+                <div class="panel-header">
+                  <h3>Calendar</h3>
+                  <div class="calendar-controls">
+                    <select id="calendarRange">
+                      <option value="week">Week</option>
+                      <option value="month" selected>Month</option>
+                      <option value="quarter">Quarter</option>
+                    </select>
+                    <div class="cal-nav">
+                      <button id="calPrevBtn" class="btn secondary small cal-nav-btn" type="button">&#8592;</button>
+                      <span id="calPeriodLabel" class="cal-period-label"></span>
+                      <button id="calNextBtn" class="btn secondary small cal-nav-btn" type="button">&#8594;</button>
+                    </div>
+                    <button id="exportIcsBtn" class="btn secondary small" type="button">Export .ics</button>
+                  </div>
+                </div>
+                <p class="muted">Color shows importance.</p>
+                <div id="calendarGrid" class="calendar-grid"></div>
+              </section>
+
+              <!-- Hidden gantt (kept for JS compat) -->
+              <select id="ganttScale" class="hidden" aria-hidden="true">
+                <option value="week" selected>Week</option>
+              </select>
+              <div id="ganttList" class="hidden" aria-hidden="true"></div>
+            </div>
+          </section>
+
+          <section id="managerView" class="view-page hidden">
+            <div class="layout manager-layout">
+              <!-- Row 1 Left: Assign Tasks -->
+              <section class="panel card">
+                <h3>Assign Tasks</h3>
+                <form id="assignForm" class="manager-form-grid">
+                  <div class="manager-field manager-field-wide">
+                    <label>Task</label>
+                    <input id="assignTitle" type="text" placeholder="Enter task title" required />
+                  </div>
+                  <div class="manager-field">
+                    <label>Assign To</label>
+                    <select id="assignUser"></select>
+                  </div>
+                  <div class="manager-field">
+                    <label>Start</label>
+                    <input id="assignStart" type="date" />
+                  </div>
+                  <div class="manager-field">
+                    <label>Deadline</label>
+                    <input id="assignDue" type="date" />
+                  </div>
+                  <div class="manager-field">
+                    <label>Project</label>
+                    <select id="assignProject">
+                      <option value="">None</option>
+                    </select>
+                  </div>
+                  <div class="manager-field">
+                    <label>Department</label>
+                    <select id="assignDept">
+                      <option value="">None</option>
+                      <option value="Operations">Operations</option>
+                      <option value="Frontend">Frontend</option>
+                      <option value="Backend">Backend</option>
+                      <option value="HR">HR</option>
+                    </select>
+                  </div>
+                  <div class="manager-field">
+                    <label>Priority Level</label>
+                    <select id="assignPriority">
+                      <option value="" selected>Select priority</option>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </div>
+                  <div class="manager-field manager-field-actions">
+                    <label>&nbsp;</label>
+                    <button class="btn primary" type="submit">Assign Task</button>
+                  </div>
+                </form>
+              </section>
+
+              <!-- Row 1 Right: Team Workload -->
+              <section class="panel card">
+                <h3>Team Workload</h3>
+                <p class="muted">Outstanding and overdue work grouped by employee.</p>
+                <div class="workload-filter-bar">
+                  <select id="workloadFilterProduct">
+                    <option value="">All Products</option>
+                    <option value="DMAP">DMAP</option>
+                    <option value="DDS">DDS</option>
+                    <option value="DCE">DCE</option>
+                    <option value="Leggero.ai">Leggero.ai</option>
+                  </select>
+                  <select id="workloadFilterProject">
+                    <option value="">All Projects</option>
+                  </select>
+                  <select id="workloadFilterRole">
+                    <option value="">All Roles</option>
+                  </select>
+                </div>
+                <div id="teamWorkload" class="team-grid"></div>
+              </section>
+
+              <!-- Row 2 Left: View Team -->
+              <section class="panel card">
+                <h3>View Team</h3>
+                <p class="muted">Team members and their project assignments.</p>
+                <div class="workload-filter-bar">
+                  <select id="viewTeamRoleFilter">
+                    <option value="">All Roles</option>
+                  </select>
+                  <select id="viewTeamSort">
+                    <option value="role">Sort by Role</option>
+                    <option value="name">Sort by Name</option>
+                  </select>
+                </div>
+                <div id="teamList" class="team-list"></div>
+              </section>
+
+              <!-- Row 2 Right: Add Team Member -->
+              <section class="panel card">
+                <h3>Add Team Member</h3>
+                <form id="addMemberForm" class="manager-form-grid">
+                  <div class="manager-field manager-field-wide">
+                    <label>Full Name</label>
+                    <input id="addMemberName" type="text" placeholder="Jane Smith" required />
+                  </div>
+                  <div class="manager-field manager-field-wide">
+                    <label>Email</label>
+                    <input id="addMemberEmail" type="email" placeholder="jane@nyalazone.ai" required />
+                  </div>
+                  <div class="manager-field">
+                    <label>Role</label>
+                    <select id="addMemberRole">
+                      <option value="member">Member</option>
+                      <option value="manager">Manager</option>
+                    </select>
+                  </div>
+                  <div class="manager-field">
+                    <label>Work Role</label>
+                    <select id="addMemberTeamRole" onchange="document.getElementById('addMemberTeamRoleCustom').classList.toggle('hidden', this.value !== 'other')">
+                      <option value="">— select role —</option>
+                      <option value="Frontend">Frontend</option>
+                      <option value="Backend">Backend</option>
+                      <option value="HR">HR</option>
+                      <option value="Operations">Operations</option>
+                      <option value="Business">Business</option>
+                      <option value="other">Other...</option>
+                    </select>
+                    <input id="addMemberTeamRoleCustom" type="text" placeholder="Enter role..." class="hidden" style="margin-top:6px" />
+                  </div>
+                  <div class="manager-field">
+                    <label>Temp Password <span class="muted mini">(optional)</span></label>
+                    <input id="addMemberPassword" type="text" placeholder="Auto-generated if blank" />
+                  </div>
+                  <div class="manager-field manager-field-actions" style="grid-column:1/-1;">
+                    <button class="btn primary" type="submit">Add Member</button>
+                    <span id="addMemberStatus" class="muted mini"></span>
+                  </div>
+                </form>
+              </section>
+
+              <!-- Row 2 Right: Team Setup -->
+              <section class="panel card">
+                <h3>Team Setup</h3>
+                <p class="muted">Managers can set each teammate's work role and assigned products.</p>
+                <div id="teamSettings" class="team-settings-grid"></div>
+              </section>
+
+              <!-- Pending Approvals -->
+              <section class="panel card" id="pendingApprovalsPanel" style="grid-column:1/-1;">
+                <h3>Pending Account Requests</h3>
+                <p class="muted">Users who registered and are awaiting approval.</p>
+                <div id="pendingApprovalsList" class="pending-approvals-list"></div>
+              </section>
+            </div>
+          </section>
+
+          <section id="remindersView" class="view-page hidden">
+            <div class="reminders-layout">
+              <section class="panel card reminders-panel">
+                <div class="panel-header">
+                  <div>
+                    <h3>Smart Nudges</h3>
+                    <p class="muted">Smart nudges across deadlines, progress, and team workload.</p>
+                  </div>
+                </div>
+                <div class="reminder-filter-pills" id="reminderFilterPills">
+                  <button class="reminder-pill active" data-filter="all" type="button">All</button>
+                  <button class="reminder-pill" data-filter="urgent" type="button">Urgent</button>
+                  <button class="reminder-pill" data-filter="team" type="button">Team</button>
+                </div>
+                <div id="remindersList" class="reminders-list"></div>
+              </section>
+            </div>
+          </section>
+
+          <section id="projectsView" class="view-page hidden">
+            <div class="projects-full-layout">
+              <div class="projects-toolbar">
+                <button id="addProjectBtn" class="btn dark" type="button">+ Add Project</button>
+                <button id="projectsCalendarBtn" class="btn secondary" type="button">📅 Calendar</button>
+                <span id="projectFormStatus" class="muted mini"></span>
+              </div>
+              <div id="projectGrid" class="project-grid"></div>
+              <section id="projectsCalendarPanel" class="panel card hidden">
+                <div class="panel-header">
+                  <h3>Project Deadlines</h3>
+                  <div class="calendar-controls">
+                    <select id="projCalRange">
+                      <option value="week">Week</option>
+                      <option value="month" selected>Month</option>
+                      <option value="quarter">Quarter</option>
+                    </select>
+                    <div class="cal-nav">
+                      <button id="projCalPrev" class="btn secondary small cal-nav-btn" type="button">&#8592;</button>
+                      <span id="projCalLabel" class="cal-period-label"></span>
+                      <button id="projCalNext" class="btn secondary small cal-nav-btn" type="button">&#8594;</button>
+                    </div>
+                  </div>
+                </div>
+                <p class="muted mini">Shows project deadlines and tasks across all your projects.</p>
+                <div id="projCalGrid" class="calendar-grid"></div>
+              </section>
+            </div>
+          </section>
+
+          <section id="ganttView" class="view-page hidden">
+            <div class="gantt-global-layout">
+              <div class="gantt-global-header">
+                <div>
+                <h2 class="brand-title small">All Projects — Gantt</h2>
+                <p class="muted">Timeline overview across all active projects</p>
+                </div>
+                <div class="gantt-view-pills" id="ganttGlobalViewPills">
+                  <button class="gantt-view-pill active" data-view="auto" type="button">Auto</button>
+                  <button class="gantt-view-pill" data-view="week" type="button">2 Weeks</button>
+                  <button class="gantt-view-pill" data-view="month" type="button">Month</button>
+                  <button class="gantt-view-pill" data-view="quarter" type="button">Quarter</button>
+                </div>
+              </div>
+              <div id="ganttGlobalList" class="gantt-global-list"></div>
+            </div>
+          </section>
+        </main>
+      </section>
+
+      <!-- Create Task Modal -->
+      <section id="createTaskModal" class="modal-shell hidden" aria-modal="true" role="dialog">
+        <div class="create-task-card card">
+          <div class="create-task-header">
+            <h3 id="createTaskModalTitle">Create New Task</h3>
+            <button id="createTaskCloseBtn" class="btn ghost small" type="button">×</button>
+          </div>
+          <form id="createTaskForm" class="stack">
+            <label>Title <span class="req-star">*</span></label>
+            <input id="createTitle" type="text" placeholder="Enter task title" required />
+            <label>Description</label>
+            <textarea id="createDesc" placeholder="Add more details about this task" rows="3"></textarea>
+            <div class="form-row-3">
+              <div class="stack">
+                <label>Status</label>
+                <select id="createStatus">
+                  <option value="todo">To Do</option>
+                  <option value="in_progress">In Progress</option>
+                </select>
+              </div>
+              <div class="stack">
+                <label>Priority</label>
+                <select id="createPriority">
+                  <option value="" selected>Select priority</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+              <div class="stack">
+                <label>Category</label>
+                <select id="createDept">
+                  <option value="">None</option>
+                  <option value="Operations">Operations</option>
+                  <option value="Frontend">Frontend</option>
+                  <option value="Backend">Backend</option>
+                  <option value="HR">HR</option>
+                </select>
+                <span id="autoCategoryHint" class="auto-hint"></span>
+              </div>
+            </div>
+            <div class="form-row-3">
+              <div class="stack">
+                <label>Start Date <span class="muted mini">(optional)</span></label>
+                <input id="createStart" type="date" />
+              </div>
+              <div class="stack">
+                <label>Duration (days) <span class="muted mini">(optional)</span></label>
+                <input id="createDuration" type="number" min="1" max="365" placeholder="e.g. 5" />
+              </div>
+              <div class="stack">
+                <label>Deadline</label>
+                <input id="createDue" type="date" />
+              </div>
+            </div>
+            <div class="form-row-2">
+              <div class="stack" id="createProductField">
+                <label>Product</label>
+                <select id="createProduct">
+                  <option value="">None</option>
+                  <option value="DMAP">DMAP</option>
+                  <option value="DDS">DDS</option>
+                  <option value="DCE">DCE</option>
+                  <option value="Leggero.ai">Leggero.ai</option>
+                </select>
+              </div>
+              <div class="stack" id="createProjectField">
+                <label>Project</label>
+                <select id="createProject">
+                  <option value="">None</option>
+                </select>
+              </div>
+            </div>
+            <div class="stack hidden" id="createSectionField">
+              <label>Section <span class="muted mini">(optional)</span></label>
+              <select id="createSection">
+                <option value="">No section</option>
+              </select>
+            </div>
+            <div class="stack">
+              <label>Share with</label>
+              <div id="shareWithList" class="share-with-list">
+                <span class="muted mini">Loading teammates…</span>
+              </div>
+            </div>
+            <div class="modal-form-actions">
+              <button type="button" id="createTaskCancelBtn" class="btn secondary">Cancel</button>
+              <button type="submit" class="btn dark">Create Task</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- Task Detail Modal -->
+      <section id="taskDetailModal" class="modal-shell hidden" aria-modal="true" role="dialog">
+        <div class="task-detail-card card task-detail-card-narrow">
+          <div class="task-detail-top">
+            <div>
+              <h3 id="tdTitle" class="brand-title small"></h3>
+              <p id="tdMeta" class="muted task-detail-subtitle"></p>
+            </div>
+            <button id="tdCloseBtn" class="btn ghost small" type="button">Close</button>
+          </div>
+          <div id="tdBody" class="task-detail-body-stack"></div>
+          <div id="tdPhaseGantt" class="hidden" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <section id="projectDetailModal" class="modal-shell hidden" aria-modal="true" role="dialog">
+        <div class="task-detail-card card">
+          <div class="task-detail-top">
+            <div>
+              <h3 id="pdTitle" class="brand-title small"></h3>
+              <p id="pdMeta" class="muted"></p>
+            </div>
+            <div class="project-detail-top-actions">
+              <button id="pdAddTaskBtn" class="btn secondary small" type="button">+ Add Task</button>
+              <button id="pdCloseBtn" class="btn ghost small" type="button">Close</button>
+            </div>
+          </div>
+          <div class="task-detail-body">
+            <div class="task-detail-section-header task-detail-section-header-wrap">
+              <div style="display:flex;align-items:center;gap:10px">
+                <h4 class="task-detail-section-title">Gantt Chart</h4>
+                <button id="ganttCollapseBtn" class="btn ghost small gantt-collapse-btn" type="button" title="Minimize Gantt">⌃</button>
+                <div class="gantt-view-pills" id="ganttViewPills">
+                  <button class="gantt-view-pill active" data-view="auto" type="button">Auto</button>
+                  <button class="gantt-view-pill" data-view="week" type="button">2 Weeks</button>
+                  <button class="gantt-view-pill" data-view="month" type="button">Month</button>
+                  <button class="gantt-view-pill" data-view="quarter" type="button">Quarter</button>
+                </div>
+              </div>
+              <div class="pd-section-add task-detail-inline-actions">
+                <select id="pdSectionPreset" class="pd-section-select">
+                  <option value="">Add section…</option>
+                  <option value="Planning">Planning</option>
+                  <option value="Research">Research</option>
+                  <option value="Design">Design</option>
+                  <option value="Development">Development</option>
+                  <option value="Testing">Testing</option>
+                  <option value="Review">Review</option>
+                  <option value="Launch">Launch</option>
+                  <option value="Post-Launch">Post-Launch</option>
+                  <option value="__custom__">Custom…</option>
+                </select>
+                <input id="pdSectionCustomInput" type="text" placeholder="Section name" class="pd-section-custom hidden" />
+                <button id="pdAddSectionBtn" class="btn secondary small" type="button">+ Add</button>
+              </div>
+            </div>
+            <div class="gantt-body-collapsible" id="ganttBodyCollapsible">
+              <p class="muted mini project-detail-helper-text">Each task is a bar on the timeline. Add tasks below, then drag bars to adjust dates or drag handles to resize.</p>
+              <!-- Section pills -->
+              <div class="pd-sections-bar" id="pdSectionsBar">
+                <div id="pdSectionPills" class="pd-section-pills"></div>
+              </div>
+              <input id="projectQuickAddInput" type="text" class="hidden" autocomplete="off" aria-hidden="true" />
+              <div id="projectQuickAddFeedback" class="hidden" aria-hidden="true"></div>
+              <form id="projectAssignForm" class="manager-form-grid hidden">
+                <div class="manager-field manager-field-wide">
+                  <label>Assign Task Within Project</label>
+                  <input id="projectAssignTitle" type="text" placeholder="Enter task title" />
+                </div>
+                <div class="manager-field">
+                  <label>Assign To</label>
+                  <select id="projectAssignUser"></select>
+                </div>
+                <div class="manager-field">
+                  <label>Deadline</label>
+                  <input id="projectAssignDue" type="date" />
+                </div>
+                <div class="manager-field">
+                  <label>Priority Level</label>
+                  <select id="projectAssignPriority">
+                    <option value="" selected>Select priority</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+                <div class="manager-field manager-field-actions">
+                  <label>&nbsp;</label>
+                  <button class="btn secondary" type="submit">Assign In Project</button>
+                </div>
+              </form>
+              <div id="pdPlanner" class="phase-gantt"></div>
+              <div class="task-detail-actions">
+                <button id="pdSaveBtn" class="btn primary" type="button">Save Plan</button>
+                <span id="pdSaveStatus" class="muted mini"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Profile Settings Modal -->
+      <section id="profileSettingsModal" class="modal-shell hidden" aria-modal="true" role="dialog">
+        <div class="modal-card card">
+          <h3>Settings</h3>
+          <form id="profileSettingsForm" class="stack">
+            <label>Timezone</label>
+            <input id="tzSelect" list="timezoneOptions" type="text" placeholder="Start typing a timezone, e.g. America/New_York" />
+            <datalist id="timezoneOptions"></datalist>
+            <p id="psError" class="login-error"></p>
+            <div class="modal-actions-inline">
+              <button type="button" id="psCancelBtn" class="btn secondary">Cancel</button>
+              <button type="submit" class="btn primary">Save Settings</button>
+            </div>
+          </form>
+        </div>
+      </section>
+      <!-- Project Create / Edit Modal -->
+      <section id="projectFormModal" class="modal-shell hidden" aria-modal="true" role="dialog">
+        <div class="create-task-card card">
+          <div class="create-task-header">
+            <h3 id="projectModalTitle">Add Project</h3>
+            <button id="projectModalCloseBtn" class="btn ghost small" type="button">×</button>
+          </div>
+          <form id="projectForm" class="stack">
+            <input type="hidden" id="projectEditId" value="" />
+            <label>Project Name <span class="req-star">*</span></label>
+            <input id="projectTitle" type="text" placeholder="e.g. Create frontend demo by 4/3" required />
+            <label>Description</label>
+            <textarea id="projectDescription" rows="3" placeholder="Add context for this project"></textarea>
+            <div class="form-row-2">
+              <div class="stack">
+                <label>Deadline</label>
+                <input id="projectDeadline" type="date" />
+              </div>
+              <div class="stack">
+                <label>Client</label>
+                <input id="projectClient" type="text" placeholder="e.g. Acme Corp" />
+              </div>
+            </div>
+            <div class="form-row-2">
+              <div class="stack">
+                <label>Product</label>
+                <select id="projectProduct">
+                  <option value="">None</option>
+                  <option value="DMAP">DMAP</option>
+                  <option value="DDS">DDS</option>
+                  <option value="DCE">DCE</option>
+                  <option value="Leggero.ai">Leggero.ai</option>
+                </select>
+              </div>
+            </div>
+            <div id="projectMembersSection" class="stack">
+              <label>Assign to:</label>
+              <div id="projectMembers" class="share-with-list">
+                <span class="muted mini">Loading teammates...</span>
+              </div>
+            </div>
+            <div class="modal-form-actions">
+              <button type="button" id="projectModalCancelBtn" class="btn secondary">Cancel</button>
+              <button type="submit" class="btn dark" id="projectModalSubmitBtn">Create Project</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- Change Password Modal -->
+      <section id="changePasswordModal" class="modal-shell hidden" aria-modal="true" role="dialog">
+        <div class="modal-card card">
+          <h3>Change Password</h3>
+          <form id="changePasswordForm" class="stack">
+            <label>Current Password</label>
+            <input id="cpCurrent" type="password" placeholder="••••••••" required />
+            <label>New Password</label>
+            <input id="cpNew" type="password" placeholder="Min. 6 characters" required />
+            <label>Confirm New Password</label>
+            <input id="cpConfirm" type="password" placeholder="Repeat new password" required />
+            <p id="cpError" class="login-error"></p>
+            <div class="modal-actions-inline">
+              <button type="button" id="cpCancelBtn" class="btn secondary">Cancel</button>
+              <button type="submit" class="btn primary">Update Password</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+    <datalist id="teamRoleOptions">
+      <option value="Frontend"></option>
+      <option value="Backend"></option>
+      <option value="Operations"></option>
+      <option value="HR"></option>
+      <option value="Design"></option>
+      <option value="Product"></option>
+      <option value="QA"></option>
+      <option value="Delivery Lead"></option>
+      <option value="Manager"></option>
+    </datalist>
+    <script type="module" src="/script.js"></script>
+  </body>
+</html>
