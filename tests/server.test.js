@@ -15,7 +15,7 @@
 
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, scryptSync } from "node:crypto";
@@ -48,14 +48,29 @@ function makeUser(overrides = {}) {
   };
 }
 
-async function req(method, url, body, token) {
+async function req(method, url, body, sessionCookie) {
   const opts = { method, headers: { "Content-Type": "application/json" } };
-  if (token) opts.headers["Authorization"] = `Bearer ${token}`;
+  if (sessionCookie) opts.headers.Cookie = sessionCookie;
   if (body != null) opts.body = JSON.stringify(body);
   const res = await fetch(url, opts);
   let json;
   try { json = await res.json(); } catch { json = {}; }
-  return { status: res.status, body: json };
+  return { status: res.status, body: json, cookie: res.headers.get("set-cookie") };
+}
+
+async function startServer() {
+  const moduleUrl = `../server/index.js?test=${Date.now()}_${Math.random()}`;
+  const { app } = await import(moduleUrl);
+  const instance = await new Promise((resolve) => {
+    const serverInstance = app.listen(0, () => resolve(serverInstance));
+  });
+  return instance;
+}
+
+async function restartServer() {
+  await new Promise((resolve) => server.close(resolve));
+  server = await startServer();
+  base = `http://localhost:${server.address().port}`;
 }
 
 // ── Global test state ──────────────────────────────────────────────────────
@@ -85,24 +100,21 @@ before(async () => {
   process.env.DATA_DIR = testDataDir;
   process.env.TEST_MODE = "1";
 
-  const { app } = await import("../server/index.js");
-  server = await new Promise((resolve) => {
-    const s = app.listen(0, () => resolve(s));
-  });
+  server = await startServer();
   base = `http://localhost:${server.address().port}`;
 
   // Log in all seed users
   const mgrLogin = await req("POST", `${base}/api/auth/login`, { email: mgrUser.email, password: "MgrPass123" });
   assert.equal(mgrLogin.status, 200, `Manager login failed: ${JSON.stringify(mgrLogin.body)}`);
-  mgrToken = mgrLogin.body.token;
+  mgrToken = mgrLogin.cookie;
 
   const loginA = await req("POST", `${base}/api/auth/login`, { email: memberA.email, password: "PassA123" });
   assert.equal(loginA.status, 200);
-  tokenA = loginA.body.token;
+  tokenA = loginA.cookie;
 
   const loginB = await req("POST", `${base}/api/auth/login`, { email: memberB.email, password: "PassB123" });
   assert.equal(loginB.status, 200);
-  tokenB = loginB.body.token;
+  tokenB = loginB.cookie;
 });
 
 after(() => {
@@ -128,7 +140,7 @@ async function registerAndApprove(email, password, name = "New Member") {
 
   const login = await req("POST", `${base}/api/auth/login`, { email, password });
   assert.equal(login.status, 200, `Login after approval failed: ${JSON.stringify(login.body)}`);
-  return { id: user.id, token: login.body.token };
+  return { id: user.id, token: login.cookie };
 }
 
 function readUserById(userId) {
@@ -155,7 +167,7 @@ describe("Auth: Registration", () => {
   test("manager approves pending user → user can now log in", async () => {
     const email = `approve_${uid()}@test.com`;
     const { token } = await registerAndApprove(email, "ApproveMe99");
-    assert.ok(token, "Token should be returned after approved login");
+    assert.ok(token, "Session cookie should be returned after approved login");
   });
 
   test("manager rejects pending user → user is deleted", async () => {
@@ -201,7 +213,7 @@ describe("Auth: Registration", () => {
   });
 
   test("protected endpoint with invalid token returns 401", async () => {
-    const res = await req("GET", `${base}/api/tasks`, null, "fake-token-xyz");
+    const res = await req("GET", `${base}/api/tasks`, null, "nz_session=fake-token-xyz");
     assert.equal(res.status, 401);
   });
 
@@ -632,7 +644,7 @@ describe("20-Employee Signup", () => {
     for (const emp of employees) {
       const login = await req("POST", `${base}/api/auth/login`, { email: emp.email, password: emp.password });
       assert.equal(login.status, 200, `Login failed for ${emp.email} after approval`);
-      assert.ok(login.body.token, "Token should be returned");
+      assert.ok(login.cookie, "Session cookie should be returned");
     }
   });
 });
@@ -696,7 +708,7 @@ describe("Edge Cases", () => {
 
     // Token is invalid after logout
     const after = await req("GET", `${base}/api/auth/me`, null, token);
-    assert.equal(after.status, 401, "Token should be invalidated after logout");
+    assert.equal(after.status, 401, "Session should be invalidated after logout");
   });
 
   test("change password — old password no longer works", async () => {
@@ -722,12 +734,14 @@ describe("Edge Cases", () => {
 
     const forgot = await req("POST", `${base}/api/auth/forgot-password`, { email });
     assert.equal(forgot.status, 200);
+    assert.ok(forgot.body.debugResetToken, "Test mode should expose the raw reset token in the response");
 
     const user = readUserById(id);
-    assert.ok(user?.passwordResetToken, "Forgot-password should persist a reset token");
+    assert.ok(user?.passwordResetToken, "Forgot-password should persist a hashed reset token");
+    assert.notEqual(user.passwordResetToken, forgot.body.debugResetToken, "Stored reset token must be hashed");
 
     const reset = await req("POST", `${base}/api/auth/reset-password`, {
-      token: user.passwordResetToken,
+      token: forgot.body.debugResetToken,
       password: "AfterReset2",
     });
     assert.equal(reset.status, 200);
@@ -740,5 +754,33 @@ describe("Edge Cases", () => {
 
     const newLogin = await req("POST", `${base}/api/auth/login`, { email, password: "AfterReset2" });
     assert.equal(newLogin.status, 200);
+  });
+
+  test("sessions persist across server restart from the same data directory", async () => {
+    const email = `restart_${uid()}@test.com`;
+    const { token } = await registerAndApprove(email, "Restart123");
+
+    const beforeRestart = await req("GET", `${base}/api/auth/me`, null, token);
+    assert.equal(beforeRestart.status, 200);
+
+    await restartServer();
+
+    const afterRestart = await req("GET", `${base}/api/auth/me`, null, token);
+    assert.equal(afterRestart.status, 200, "Cookie-backed session should survive restart when persisted on disk");
+  });
+
+  test("corrupt primary db recovers from the newest valid backup", async () => {
+    const created = await req("POST", `${base}/api/tasks/parse`, { text: "Backup recovery task" }, tokenA);
+    assert.equal(created.status, 201);
+
+    const backups = readdirSync(join(testDataDir, "backups")).filter((name) => name.endsWith(".json"));
+    assert.ok(backups.length > 0, "Mutations should create same-volume backups");
+
+    writeFileSync(join(testDataDir, "db.json"), "{ not valid json", "utf8");
+    await restartServer();
+
+    const restored = await req("GET", `${base}/api/tasks?scope=mine&status=outstanding`, null, tokenA);
+    assert.equal(restored.status, 200);
+    assert.ok(restored.body.some((task) => task.title === "Backup recovery task"), "Server should recover from the latest valid backup");
   });
 });

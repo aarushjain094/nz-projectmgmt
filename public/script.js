@@ -1,6 +1,7 @@
+import { buildDemoSteps, createDemoController } from "./demo-mode.js";
+
 const state = {
-  token: localStorage.getItem("token") || "",
-  user: JSON.parse(localStorage.getItem("user") || "null"),
+  user: null,
   activeTasks: [],
   completedTasks: [],
   deletedTasks: [],
@@ -25,13 +26,23 @@ const state = {
   editReturnToProject: null,
   createTaskModalRequestId: 0,
   createTaskSectionRequestId: 0,
+  demo: {
+    active: false,
+    stepIndex: 0,
+    snapshot: null,
+  },
 };
+
+const demoController = createDemoController();
+const demoSteps = buildDemoSteps();
 
 const loginView = document.getElementById("loginView");
 const mainView = document.getElementById("mainView");
 const loginForm = document.getElementById("loginForm");
 const loginError = document.getElementById("loginError");
 const logoutBtn = document.getElementById("logoutBtn");
+const startDemoAuthBtn = document.getElementById("startDemoAuthBtn");
+const startDemoNavBtn = document.getElementById("startDemoNavBtn");
 const welcomeText = document.getElementById("welcomeText");
 const topTimezoneSelect = document.getElementById("topTimezoneSelect");
 
@@ -143,6 +154,7 @@ init();
 
 async function init() {
   bindEvents();
+  ensureDemoUi();
 
   // If URL has a reset token, show reset view immediately
   const resetToken = new URLSearchParams(window.location.search).get("reset");
@@ -151,16 +163,13 @@ async function init() {
     return;
   }
 
-  if (state.token) {
-    try {
-      state.user = await api("/api/auth/me");
-      persistAuth();
-      setAppVisible(true);
-      await loadCurrentTab();
-      return;
-    } catch {
-      clearAuth();
-    }
+  try {
+    state.user = await api("/api/auth/me");
+    setAppVisible(true);
+    await loadCurrentTab();
+    return;
+  } catch {
+    clearAuth();
   }
   setAppVisible(false);
 }
@@ -168,6 +177,11 @@ async function init() {
 function bindEvents() {
   loginForm.addEventListener("submit", onLogin);
   document.addEventListener("keydown", onGlobalKeydown);
+  window.addEventListener("resize", () => {
+    if (state.demo.active) positionDemoOverlay();
+  });
+  startDemoAuthBtn?.addEventListener("click", startGuidedDemo);
+  startDemoNavBtn?.addEventListener("click", startGuidedDemo);
 
   // Auth view switching
   document.getElementById("showForgotBtn").addEventListener("click", () => showAuthView("forgotView"));
@@ -355,9 +369,14 @@ function bindEvents() {
 
   // Logout / tabs
   logoutBtn.addEventListener("click", async () => {
+    if (state.demo.active) {
+      stopGuidedDemo();
+      return;
+    }
     try { await api("/api/auth/logout", { method: "POST" }); } catch { /* ignore */ }
     clearAuth();
     setAppVisible(false);
+    showAuthView("loginView");
   });
   tasksNavBtn.addEventListener("click", () => setActiveTab("tasks"));
   remindersNavBtn.addEventListener("click", () => setActiveTab("reminders"));
@@ -665,6 +684,7 @@ function onGlobalKeydown(event) {
 async function onLogin(event) {
   event.preventDefault();
   loginError.textContent = "";
+  loginError.style.color = "";
   const email = document.getElementById("emailInput").value.trim();
   const password = document.getElementById("passwordInput").value;
   try {
@@ -672,9 +692,8 @@ async function onLogin(event) {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    state.token = result.token;
     state.user = result.user;
-    persistAuth();
+    if (state.demo.active) stopGuidedDemo({ restoreLiveState: false });
     setAppVisible(true);
     await loadCurrentTab();
   } catch (error) {
@@ -718,9 +737,8 @@ async function onRegister(e) {
       }, 3000);
       return;
     }
-    state.token = result.token;
     state.user = result.user;
-    persistAuth();
+    if (state.demo.active) stopGuidedDemo({ restoreLiveState: false });
     setAppVisible(true);
     await loadCurrentTab();
   } catch (error) {
@@ -778,6 +796,11 @@ async function onChangePassword(e) {
       body: JSON.stringify({ currentPassword, newPassword }),
     });
     document.getElementById("changePasswordModal").classList.add("hidden");
+    clearAuth();
+    setAppVisible(false);
+    showAuthView("loginView");
+    loginError.style.color = "#16a34a";
+    loginError.textContent = "Password updated. Please sign in again.";
   } catch (error) {
     err.textContent = error.message || "Failed to update password";
   }
@@ -819,7 +842,12 @@ function setAppVisible(isLoggedIn) {
   loginView.classList.toggle("hidden", isLoggedIn);
   mainView.classList.toggle("hidden", !isLoggedIn);
   if (!state.user) return;
-  welcomeText.textContent = state.user.name;
+  welcomeText.textContent = state.demo.active
+    ? `${state.user.name} (Demo ${state.user.role === "manager" ? "Manager" : "Member"})`
+    : state.user.name;
+  if (startDemoNavBtn) {
+    startDemoNavBtn.textContent = state.demo.active ? "Restart Demo" : "Start Demo";
+  }
   if (topTimezoneSelect) topTimezoneSelect.value = state.user.timezone || "UTC";
   const isManager = state.user.role === "manager";
   managerNavBtn.classList.toggle("hidden", !isManager);
@@ -866,7 +894,6 @@ async function saveTimezone(timezone) {
     body: JSON.stringify({ timezone }),
   });
   state.user = { ...state.user, timezone: result.timezone };
-  persistAuth();
   if (topTimezoneSelect) topTimezoneSelect.value = result.timezone;
   return result;
 }
@@ -3806,30 +3833,221 @@ function renderPhasePlannerGantt() {
 function openTimelineModal(taskId) {
 }
 
-// ── API ───────────────────────────────────────────────
+// ── Demo + API ────────────────────────────────────────
+
+function ensureDemoUi() {
+  if (document.getElementById("demoOverlay")) return;
+  const overlay = document.createElement("div");
+  overlay.id = "demoOverlay";
+  overlay.className = "demo-overlay hidden";
+  overlay.innerHTML = `
+    <div class="demo-highlight" id="demoHighlight"></div>
+    <div class="demo-panel card" id="demoPanel">
+      <div class="demo-panel-top">
+        <span class="demo-badge">Guided Demo</span>
+        <span class="demo-step" id="demoStepLabel"></span>
+      </div>
+      <h3 id="demoTitle"></h3>
+      <p id="demoBody"></p>
+      <div class="demo-actions">
+        <button type="button" class="btn ghost small" id="demoSkipBtn">Skip</button>
+        <button type="button" class="btn secondary small" id="demoBackBtn">Back</button>
+        <button type="button" class="btn primary small" id="demoNextBtn">Next</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById("demoSkipBtn")?.addEventListener("click", () => stopGuidedDemo());
+  document.getElementById("demoBackBtn")?.addEventListener("click", () => advanceDemoStep(-1));
+  document.getElementById("demoNextBtn")?.addEventListener("click", () => advanceDemoStep(1));
+}
+
+async function startGuidedDemo() {
+  const priorSnapshot = state.demo.active ? state.demo.snapshot : null;
+  const wasLiveSession = priorSnapshot?.hadLiveSession || (!mainView.classList.contains("hidden") && !!state.user);
+  demoController.start();
+  state.demo.active = true;
+  state.demo.stepIndex = 0;
+  state.demo.snapshot = {
+    hadLiveSession: wasLiveSession,
+    user: priorSnapshot?.user || (state.user ? JSON.parse(JSON.stringify(state.user)) : null),
+    tab: priorSnapshot?.tab || state.tab,
+  };
+  state.user = demoController.getCurrentUser();
+  setAppVisible(true);
+  await showDemoStep(0);
+}
+
+async function stopGuidedDemo({ restoreLiveState = true } = {}) {
+  const snapshot = state.demo.snapshot;
+  const wasActive = state.demo.active;
+  state.demo.active = false;
+  state.demo.stepIndex = 0;
+  state.demo.snapshot = null;
+  demoController.stop();
+  document.getElementById("demoOverlay")?.classList.add("hidden");
+  document.body.classList.remove("demo-active");
+  closeAllModals();
+  if (!wasActive || !restoreLiveState) return;
+  if (snapshot?.hadLiveSession && snapshot.user) {
+    state.user = snapshot.user;
+    setAppVisible(true);
+    setActiveTab(snapshot.tab || "tasks");
+    await waitForPaint();
+    await loadCurrentTab();
+    return;
+  }
+  clearAuth();
+  setAppVisible(false);
+  showAuthView("loginView");
+}
+
+async function advanceDemoStep(delta) {
+  if (!state.demo.active) return;
+  const nextIndex = state.demo.stepIndex + delta;
+  if (nextIndex < 0) return;
+  if (nextIndex >= demoSteps.length) {
+    await stopGuidedDemo();
+    return;
+  }
+  await showDemoStep(nextIndex);
+}
+
+async function showDemoStep(index) {
+  state.demo.stepIndex = index;
+  const step = demoSteps[index];
+  if (!step) return;
+  await prepareDemoStep(step);
+  renderDemoStep(step);
+}
+
+async function prepareDemoStep(step) {
+  closeAllModals();
+  if (step.prepare === "switchToManager") {
+    state.user = demoController.switchPersona("manager");
+    setAppVisible(true);
+  }
+  if (step.tab) {
+    setActiveTab(step.tab);
+    await waitForPaint();
+  }
+  if (step.prepare === "openCreateTask") {
+    await openCreateTaskModal();
+  }
+  if (step.prepare === "seedCreateTaskForm") {
+    await openCreateTaskModal();
+    document.getElementById("createTitle").value = "Demo shared task";
+    document.getElementById("createDesc").value = "Show shared visibility without touching live data.";
+    document.getElementById("createPriority").value = "high";
+    document.getElementById("createDept").value = "Frontend";
+    createDueInput.value = toDateInputValue(addDays(new Date(), 2).toISOString());
+    createProjectSelect.value = "demo_project_launch";
+    await syncCreateTaskSectionField("demo_project_launch");
+    createSectionSelect.value = "Launch";
+    [...shareWithList.querySelectorAll("input[type=checkbox]")].forEach((box) => {
+      box.checked = box.value === "demo_backend";
+    });
+  }
+  if (step.prepare === "createSharedTaskAndOpen") {
+    const task = await api("/api/tasks/parse", {
+      method: "POST",
+      body: JSON.stringify({
+        text: "Demo shared task",
+        description: "Show shared visibility without touching live data.",
+        sharedWith: ["demo_backend"],
+        projectId: "demo_project_launch",
+        section: "Launch",
+        department: "Frontend",
+        priority: "high",
+        dueDate: toEndOfDayIso(toDateInputValue(addDays(new Date(), 2).toISOString())),
+      }),
+    });
+    closeCreateTaskModal();
+    await loadMyWork();
+    await openTaskDetail(task.id);
+  }
+  if (step.prepare === "openDemoProject") {
+    await openProjectDetail("demo_project_launch");
+  }
+}
+
+function renderDemoStep(step) {
+  const overlay = document.getElementById("demoOverlay");
+  if (!overlay) return;
+  overlay.classList.remove("hidden");
+  document.body.classList.add("demo-active");
+  document.getElementById("demoTitle").textContent = step.title;
+  document.getElementById("demoBody").textContent = step.body;
+  document.getElementById("demoStepLabel").textContent = `${state.demo.stepIndex + 1}/${demoSteps.length}`;
+  const backBtn = document.getElementById("demoBackBtn");
+  const nextBtn = document.getElementById("demoNextBtn");
+  if (backBtn) backBtn.disabled = state.demo.stepIndex === 0;
+  if (nextBtn) nextBtn.textContent = state.demo.stepIndex === demoSteps.length - 1 ? "Finish" : "Next";
+  positionDemoOverlay();
+}
+
+function positionDemoOverlay() {
+  const overlay = document.getElementById("demoOverlay");
+  const panel = document.getElementById("demoPanel");
+  const highlight = document.getElementById("demoHighlight");
+  if (!overlay || !panel || !highlight || overlay.classList.contains("hidden")) return;
+  const step = demoSteps[state.demo.stepIndex];
+  const target = step?.target ? document.querySelector(step.target) : null;
+  if (!target) {
+    highlight.style.display = "none";
+    panel.style.top = "24px";
+    panel.style.left = "24px";
+    return;
+  }
+
+  target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+  const rect = target.getBoundingClientRect();
+  highlight.style.display = "";
+  highlight.style.top = `${Math.max(12, rect.top - 8)}px`;
+  highlight.style.left = `${Math.max(12, rect.left - 8)}px`;
+  highlight.style.width = `${Math.max(120, rect.width + 16)}px`;
+  highlight.style.height = `${Math.max(56, rect.height + 16)}px`;
+
+  let top = rect.bottom + 16;
+  if (top + panel.offsetHeight > window.innerHeight - 24) {
+    top = Math.max(24, rect.top - panel.offsetHeight - 16);
+  }
+  let left = Math.min(rect.left, window.innerWidth - panel.offsetWidth - 24);
+  left = Math.max(24, left);
+  panel.style.top = `${top}px`;
+  panel.style.left = `${left}px`;
+}
+
+function closeAllModals() {
+  closeCreateTaskModal();
+  taskDetailModal.classList.add("hidden");
+  projectDetailModal.classList.add("hidden");
+  projectFormModal.classList.add("hidden");
+  profileSettingsModal?.classList.add("hidden");
+  document.getElementById("changePasswordModal")?.classList.add("hidden");
+}
+
+async function waitForPaint() {
+  await new Promise((resolve) => window.requestAnimationFrame(resolve));
+}
 
 async function api(url, options = {}) {
+  if (state.demo.active && demoController.isActive()) {
+    return demoController.handleApiRequest(url, options);
+  }
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-  if (state.token) headers.Authorization = `Bearer ${state.token}`;
-  const response = await fetch(url, { ...options, headers });
+  const response = await fetch(url, { ...options, headers, credentials: "same-origin" });
   if (!response.ok) {
     let payload = {};
     try { payload = await response.json(); } catch { payload = {}; }
     throw new Error(payload.error || `Request failed (${response.status})`);
   }
+  if (response.status === 204) return null;
   return response.json();
 }
 
-function persistAuth() {
-  localStorage.setItem("token", state.token);
-  localStorage.setItem("user", JSON.stringify(state.user));
-}
-
 function clearAuth() {
-  state.token = "";
   state.user = null;
-  localStorage.removeItem("token");
-  localStorage.removeItem("user");
 }
 
 // ── Helpers ───────────────────────────────────────────

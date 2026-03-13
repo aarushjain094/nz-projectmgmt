@@ -32,3 +32,41 @@ Current fixes tied to this note:
 - Blank-title validation restores button state and shows a message.
 - Async share-list and section-loading paths are guarded against stale responses.
 - Invalid start/deadline combinations are rejected in the modal before submit.
+
+## Guided Demo Rules
+
+The guided demo must never share state with the live workspace.
+
+Before changing demo behavior, verify all of the following:
+
+1. Demo data stays client-only.
+   - The demo runs through intercepted client requests and canned state.
+   - No live API mutation should occur while demo mode is active.
+
+2. Demo exit restores the prior app shell.
+   - Logged-out users should return to the auth screen.
+   - Logged-in users should return to their previous tab with live data reloaded.
+
+3. Demo steps target the real UI.
+   - The walkthrough should drive existing tabs, forms, and modals rather than maintaining duplicate markup.
+
+4. Persona switching stays explicit.
+   - The member-to-manager switch is simulated in demo state only.
+   - Role-specific UI should rerender from the demo persona before the next step is shown.
+
+## Security And Durability Notes
+
+1. Session auth is cookie-backed.
+   - Do not reintroduce bearer tokens in `localStorage` or query params.
+   - Authenticated fetches must stay same-origin with credentials enabled.
+
+2. Password reset tokens are stored hashed only.
+   - Test-only flows may expose raw tokens in responses, but production code must not log or persist them in plaintext.
+
+3. Persistence writes must remain atomic.
+   - Write temp file, fsync, then rename.
+   - Keep rolling backups on the same Fly volume and bounded by retention.
+
+4. Same-volume backups are a corruption guard, not disaster recovery.
+   - They protect against bad writes and restart recovery.
+   - They do not protect against total loss of the only Fly volume.

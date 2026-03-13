@@ -11,14 +11,20 @@ const rootDir = path.resolve(__dirname, "..");
 const publicDir = path.join(rootDir, "public");
 const dataDir = process.env.DATA_DIR || path.join(rootDir, "data");
 const dbPath = path.join(dataDir, "db.json");
+const sessionsPath = path.join(dataDir, "sessions.json");
+const backupDir = path.join(dataDir, "backups");
+const dbBackupRetention = Number(process.env.DB_BACKUP_RETENTION || 12);
+const sessionCookieName = "nz_session";
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
+app.set("trust proxy", 1);
 
 app.use(express.json());
 app.use(express.static(publicDir));
 
 ensureDataFiles();
+recoverDbFromBackupIfNeeded();
 migratePasswords();
 
 // Purge tasks soft-deleted more than 7 days ago
@@ -36,15 +42,18 @@ purgeOldDeletedTasks();
 const deletedTaskPurgeInterval = setInterval(purgeOldDeletedTasks, 60 * 60 * 1000);
 deletedTaskPurgeInterval.unref();
 
-const sessions = new Map();
+const sessions = loadSessions();
 
 function invalidateSessionsForUser(userId, exceptToken = null) {
   if (!userId) return;
-  for (const [token, sessionUserId] of sessions.entries()) {
-    if (sessionUserId === userId && token !== exceptToken) {
+  let changed = false;
+  for (const [token, session] of sessions.entries()) {
+    if (session?.userId === userId && token !== exceptToken) {
       sessions.delete(token);
+      changed = true;
     }
   }
+  if (changed) saveSessions();
 }
 
 // Simple in-memory rate limiter for auth endpoints
@@ -147,10 +156,14 @@ app.post("/api/auth/login", rateLimit, (req, res) => {
   }
 
   const token = crypto.randomUUID();
-  sessions.set(token, user.id);
+  sessions.set(token, {
+    userId: user.id,
+    createdAt: new Date().toISOString(),
+  });
+  saveSessions();
+  setSessionCookie(res, token, req);
 
   res.json({
-    token,
     user: {
       id: user.id,
       name: user.name,
@@ -162,9 +175,11 @@ app.post("/api/auth/login", rateLimit, (req, res) => {
 });
 
 app.post("/api/auth/logout", requireAuth, (req, res) => {
-  const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (token) sessions.delete(token);
+  if (req.sessionToken) {
+    sessions.delete(req.sessionToken);
+    saveSessions();
+  }
+  clearSessionCookie(res, req);
   res.json({ ok: true });
 });
 
@@ -306,7 +321,7 @@ app.post("/api/users", requireAuth, requireManager, (req, res) => {
       subject: "[Nyalazone] You've been invited",
       text: `Hi ${user.name},\n\nYou've been added to Nyalazone Project Tracker.\n\nEmail: ${user.email}\nTemp password: ${password}\n\nPlease log in and change your password.\n`,
     }).catch((err) => console.error("Invite email failed:", err?.message));
-  } else {
+  } else if (allowSensitiveDevLogs()) {
     console.log(`[INVITE] New user ${user.email} — temp password: ${password}`);
   }
 
@@ -323,6 +338,7 @@ app.delete("/api/users/:id", requireAuth, requireManager, (req, res) => {
   const idx = db.users.findIndex((u) => u.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: "User not found" });
   if (db.users[idx].id === req.userId) return res.status(400).json({ error: "Cannot delete yourself" });
+  invalidateSessionsForUser(db.users[idx].id);
   db.users.splice(idx, 1);
   saveDb(db);
   res.json({ ok: true });
@@ -341,6 +357,7 @@ app.post("/api/users/:id/reject", requireAuth, requireManager, (req, res) => {
   const db = readDb();
   const idx = db.users.findIndex(u => u.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: "User not found" });
+  invalidateSessionsForUser(db.users[idx].id);
   db.users.splice(idx, 1);
   saveDb(db);
   res.json({ ok: true });
@@ -350,14 +367,13 @@ app.post("/api/users/:id/reject", requireAuth, requireManager, (req, res) => {
 app.post("/api/auth/forgot-password", rateLimit, (req, res) => {
   const { email } = req.body ?? {};
   // Always return 200 to avoid email enumeration
-  res.json({ ok: true });
-  if (!email) return;
+  if (!email) return res.json({ ok: true });
   const db = readDb();
   const user = db.users.find((u) => u.email.toLowerCase() === String(email).toLowerCase());
-  if (!user) return;
+  if (!user) return res.json({ ok: true });
 
   const token = crypto.randomBytes(32).toString("hex");
-  user.passwordResetToken = token;
+  user.passwordResetToken = hashResetToken(token);
   user.passwordResetExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
   saveDb(db);
 
@@ -370,9 +386,11 @@ app.post("/api/auth/forgot-password", rateLimit, (req, res) => {
       subject: "[Nyalazone] Reset your password",
       text: `Hi ${user.name},\n\nClick the link below to reset your password (valid for 1 hour):\n\n${resetUrl}\n\nIf you didn't request this, ignore this email.\n`,
     }).catch((err) => console.error("Reset email failed:", err?.message));
-  } else {
+  } else if (allowSensitiveDevLogs()) {
     console.log(`[PASSWORD RESET] Token for ${user.email}: ${resetUrl}`);
   }
+
+  res.json(process.env.TEST_MODE ? { ok: true, debugResetToken: token } : { ok: true });
 });
 
 // ── Reset password (via token) ────────────────────────
@@ -383,7 +401,7 @@ app.post("/api/auth/reset-password", (req, res) => {
     return res.status(400).json({ error: "Password must be at least 6 characters" });
   }
   const db = readDb();
-  const user = db.users.find((u) => u.passwordResetToken === token);
+  const user = db.users.find((u) => u.passwordResetToken === hashResetToken(token));
   if (!user || !user.passwordResetExpiry || new Date(user.passwordResetExpiry) < new Date()) {
     return res.status(400).json({ error: "Reset link is invalid or has expired" });
   }
@@ -412,6 +430,9 @@ app.patch("/api/auth/change-password", requireAuth, (req, res) => {
   user.password = hashPassword(newPassword);
   invalidateSessionsForUser(user.id);
   saveDb(db);
+  if (req.sessionToken) {
+    clearSessionCookie(res, req);
+  }
   res.json({ ok: true });
 });
 
@@ -1002,12 +1023,13 @@ export { app };
 startReminderScheduler();
 
 function requireAuth(req, res, next) {
-  const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (!token || !sessions.has(token)) {
+  const token = getSessionToken(req);
+  const session = token ? sessions.get(token) : null;
+  if (!token || !session?.userId) {
     return res.status(401).json({ error: "Unauthorized" });
   }
-  req.userId = sessions.get(token);
+  req.sessionToken = token;
+  req.userId = session.userId;
   next();
 }
 
@@ -1023,6 +1045,9 @@ function requireManager(req, res, next) {
 function ensureDataFiles() {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
+  }
+  if (!fs.existsSync(backupDir)) {
+    fs.mkdirSync(backupDir, { recursive: true });
   }
   if (!fs.existsSync(dbPath)) {
     const nowIso = new Date().toISOString();
@@ -1081,7 +1106,10 @@ function ensureDataFiles() {
         },
       ],
     };
-    fs.writeFileSync(dbPath, JSON.stringify(defaultDb, null, 2), "utf8");
+    writeJsonAtomic(dbPath, defaultDb);
+  }
+  if (!fs.existsSync(sessionsPath)) {
+    writeJsonAtomic(sessionsPath, {});
   }
 }
 
@@ -1091,7 +1119,148 @@ function readDb() {
 }
 
 function saveDb(db) {
-  fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), "utf8");
+  writeJsonAtomic(dbPath, db);
+  createDbBackup();
+}
+
+function loadSessions() {
+  try {
+    const raw = fs.readFileSync(sessionsPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const map = new Map();
+    for (const [token, session] of Object.entries(parsed || {})) {
+      if (typeof token === "string" && session?.userId) {
+        map.set(token, {
+          userId: session.userId,
+          createdAt: session.createdAt || new Date().toISOString(),
+        });
+      }
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+function saveSessions() {
+  const payload = Object.fromEntries(sessions.entries());
+  writeJsonAtomic(sessionsPath, payload);
+}
+
+function writeJsonAtomic(targetPath, data) {
+  const tempPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  const json = JSON.stringify(data, null, 2);
+  const fd = fs.openSync(tempPath, "w");
+  try {
+    fs.writeFileSync(fd, json, "utf8");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tempPath, targetPath);
+}
+
+function createDbBackup() {
+  if (!fs.existsSync(dbPath)) return;
+  try {
+    JSON.parse(fs.readFileSync(dbPath, "utf8"));
+  } catch {
+    return;
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupPath = path.join(backupDir, `db-${stamp}.json`);
+  fs.copyFileSync(dbPath, backupPath);
+  const backups = fs.readdirSync(backupDir)
+    .filter((name) => /^db-.*\.json$/.test(name))
+    .sort();
+  while (backups.length > dbBackupRetention) {
+    const oldest = backups.shift();
+    if (oldest) {
+      fs.rmSync(path.join(backupDir, oldest), { force: true });
+    }
+  }
+}
+
+function recoverDbFromBackupIfNeeded() {
+  try {
+    JSON.parse(fs.readFileSync(dbPath, "utf8"));
+    return;
+  } catch {
+    // fall through to backup recovery
+  }
+
+  const backups = fs.readdirSync(backupDir)
+    .filter((name) => /^db-.*\.json$/.test(name))
+    .sort()
+    .reverse();
+
+  for (const backupName of backups) {
+    const backupPath = path.join(backupDir, backupName);
+    try {
+      const raw = fs.readFileSync(backupPath, "utf8");
+      JSON.parse(raw);
+      writeJsonAtomic(dbPath, JSON.parse(raw));
+      console.warn(`Recovered database from backup ${backupName}`);
+      return;
+    } catch {
+      // try the next backup
+    }
+  }
+}
+
+function getSessionToken(req) {
+  const cookieHeader = req.headers.cookie || "";
+  const cookies = Object.fromEntries(cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const idx = part.indexOf("=");
+      return idx === -1 ? [part, ""] : [part.slice(0, idx), decodeURIComponent(part.slice(idx + 1))];
+    }));
+  return cookies[sessionCookieName] || null;
+}
+
+function isSecureCookieRequest(req) {
+  if (process.env.TEST_MODE) return false;
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  if (req.secure || forwardedProto === "https") return true;
+  return String(process.env.APP_URL || "").startsWith("https://");
+}
+
+function setSessionCookie(res, token, req) {
+  const parts = [
+    `${sessionCookieName}=${encodeURIComponent(token)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+  ];
+  if (isSecureCookieRequest(req)) {
+    parts.push("Secure");
+  }
+  res.setHeader("Set-Cookie", parts.join("; "));
+}
+
+function clearSessionCookie(res, req) {
+  const parts = [
+    `${sessionCookieName}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0",
+  ];
+  if (isSecureCookieRequest(req)) {
+    parts.push("Secure");
+  }
+  res.setHeader("Set-Cookie", parts.join("; "));
+}
+
+function hashResetToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+function allowSensitiveDevLogs() {
+  return process.env.ALLOW_DEV_PASSWORD_LOGS === "1" && !String(process.env.APP_URL || "").startsWith("https://");
 }
 
 function parseNaturalLanguageTask(text, _timezone) {
@@ -1354,7 +1523,9 @@ function notifyManagersOfPendingSignup(user, db) {
     return;
   }
 
-  console.log(`[PENDING APPROVAL] ${user.email} awaiting approval. Notify: ${managers.map((entry) => entry.email).join(", ")}`);
+  if (allowSensitiveDevLogs()) {
+    console.log(`[PENDING APPROVAL] ${user.email} awaiting approval. Notify: ${managers.map((entry) => entry.email).join(", ")}`);
+  }
 }
 
 function alreadySentRecently(history, type, now) {
