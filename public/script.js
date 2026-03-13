@@ -958,7 +958,7 @@ function onCreateDueInput() {
   }
 }
 
-function setActiveTab(tab) {
+async function setActiveTab(tab) {
   if (tab === "manager" && state.user?.role !== "manager") return;
   state.tab = tab;
   tasksNavBtn.classList.toggle("active", tab === "tasks");
@@ -972,18 +972,18 @@ function setActiveTab(tab) {
   ganttView.classList.toggle("hidden", tab !== "gantt");
   managerView.classList.toggle("hidden", tab !== "manager");
   if (tab === "reminders") {
-    loadReminders();
+    await loadReminders();
     return;
   }
   if (tab === "projects") {
-    loadProjects();
+    await loadProjects();
     return;
   }
   if (tab === "gantt") {
-    loadGlobalGantt();
+    await loadGlobalGantt();
     return;
   }
-  loadCurrentTab();
+  await loadCurrentTab();
 }
 
 async function loadCurrentTab() {
@@ -3844,8 +3844,11 @@ function ensureDemoUi() {
     <div class="demo-highlight" id="demoHighlight"></div>
     <div class="demo-panel card" id="demoPanel">
       <div class="demo-panel-top">
-        <span class="demo-badge">Guided Demo</span>
-        <span class="demo-step" id="demoStepLabel"></span>
+        <div class="demo-panel-top-main">
+          <span class="demo-badge">Guided Demo</span>
+          <span class="demo-step" id="demoStepLabel"></span>
+        </div>
+        <button type="button" class="demo-close-btn" id="demoCloseBtn" aria-label="Close demo">×</button>
       </div>
       <h3 id="demoTitle"></h3>
       <p id="demoBody"></p>
@@ -3857,6 +3860,7 @@ function ensureDemoUi() {
     </div>
   `;
   document.body.appendChild(overlay);
+  document.getElementById("demoCloseBtn")?.addEventListener("click", () => stopGuidedDemo());
   document.getElementById("demoSkipBtn")?.addEventListener("click", () => stopGuidedDemo());
   document.getElementById("demoBackBtn")?.addEventListener("click", () => advanceDemoStep(-1));
   document.getElementById("demoNextBtn")?.addEventListener("click", () => advanceDemoStep(1));
@@ -3918,6 +3922,7 @@ async function showDemoStep(index) {
   const step = demoSteps[index];
   if (!step) return;
   await prepareDemoStep(step);
+  await waitForDemoTarget(step.target);
   renderDemoStep(step);
 }
 
@@ -3928,8 +3933,7 @@ async function prepareDemoStep(step) {
     setAppVisible(true);
   }
   if (step.tab) {
-    setActiveTab(step.tab);
-    await waitForPaint();
+    await setActiveTab(step.tab);
   }
   if (step.prepare === "openCreateTask") {
     await openCreateTaskModal();
@@ -3993,15 +3997,26 @@ function positionDemoOverlay() {
   if (!overlay || !panel || !highlight || overlay.classList.contains("hidden")) return;
   const step = demoSteps[state.demo.stepIndex];
   const target = step?.target ? document.querySelector(step.target) : null;
+  const compactLayout = window.innerWidth <= 760;
   if (!target) {
     highlight.style.display = "none";
-    panel.style.top = "24px";
-    panel.style.left = "24px";
+    panel.style.top = compactLayout ? "" : "24px";
+    panel.style.left = compactLayout ? "" : "24px";
+    panel.style.bottom = compactLayout ? "12px" : "";
+    panel.style.right = compactLayout ? "12px" : "";
     return;
   }
 
-  target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+  target.scrollIntoView({ block: "center", inline: "nearest" });
   const rect = target.getBoundingClientRect();
+  if (compactLayout) {
+    highlight.style.display = "none";
+    panel.style.top = "";
+    panel.style.left = "12px";
+    panel.style.right = "12px";
+    panel.style.bottom = "12px";
+    return;
+  }
   highlight.style.display = "";
   highlight.style.top = `${Math.max(12, rect.top - 8)}px`;
   highlight.style.left = `${Math.max(12, rect.left - 8)}px`;
@@ -4016,6 +4031,8 @@ function positionDemoOverlay() {
   left = Math.max(24, left);
   panel.style.top = `${top}px`;
   panel.style.left = `${left}px`;
+  panel.style.right = "";
+  panel.style.bottom = "";
 }
 
 function closeAllModals() {
@@ -4029,6 +4046,31 @@ function closeAllModals() {
 
 async function waitForPaint() {
   await new Promise((resolve) => window.requestAnimationFrame(resolve));
+}
+
+async function waitForDemoTarget(selector, timeoutMs = 1800) {
+  if (!selector) {
+    await waitForPaint();
+    return null;
+  }
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const target = document.querySelector(selector);
+    if (target && isDemoTargetReady(target)) {
+      await waitForPaint();
+      return target;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+  return document.querySelector(selector);
+}
+
+function isDemoTargetReady(target) {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.classList.contains("hidden")) return false;
+  if (target.closest(".hidden")) return false;
+  const rect = target.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
 }
 
 async function api(url, options = {}) {

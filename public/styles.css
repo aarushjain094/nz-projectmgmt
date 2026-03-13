@@ -285,6 +285,9 @@ select {
   display: grid;
   gap: 12px;
   pointer-events: auto;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .demo-panel-top {
@@ -292,6 +295,11 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.demo-panel-top-main {
+  display: grid;
+  gap: 2px;
 }
 
 .demo-badge,
@@ -304,6 +312,22 @@ select {
 .demo-badge {
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.demo-close-btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: #334155;
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .demo-panel h3,
@@ -320,6 +344,11 @@ select {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  position: sticky;
+  bottom: -18px;
+  margin: 0 -18px -18px;
+  padding: 14px 18px 18px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.72) 0%, #fff 28%);
 }
 
 .muted {
@@ -1892,7 +1921,30 @@ button.pg-bar-row-label:hover {
     padding: 12px 16px;
     gap: 10px;
   }
-  .navbar-nav { order: 3; width: 100%; justify-content: flex-start; }
+  .navbar-brand {
+    width: 100%;
+    justify-content: center;
+  }
+  .navbar-nav {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .navbar-right {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .nav-timezone-select,
+  .nav-timezone-label {
+    order: 1;
+  }
+  .navbar-right .btn {
+    flex: 1 1 auto;
+  }
   .nav-user { display: none; }
   .topbar {
     flex-direction: column;
@@ -1921,6 +1973,17 @@ button.pg-bar-row-label:hover {
   .calendar-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .projects-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .projects-toolbar .btn,
+  .projects-toolbar .muted {
+    width: 100%;
+  }
+  .project-grid {
+    grid-template-columns: 1fr;
+  }
   .check-meta {
     width: 100%;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1936,6 +1999,69 @@ button.pg-bar-row-label:hover {
   }
   .manager-form-grid {
     grid-template-columns: 1fr;
+  }
+  .task-status-tabs {
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    scrollbar-width: thin;
+  }
+  .status-tab-btn {
+    flex: 0 0 auto;
+  }
+  .task-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .task-row-title {
+    white-space: normal;
+  }
+  .due-badge {
+    min-width: 0;
+    text-align: left;
+  }
+  .task-row > .btn,
+  .task-row .status-select-inline,
+  .task-row .due-badge,
+  .task-row .priority-badge,
+  .task-row .product-badge,
+  .task-row .dept-badge {
+    margin-left: 28px;
+  }
+  .modal-shell {
+    align-items: end;
+    padding: 0;
+  }
+  .create-task-card,
+  .task-detail-card,
+  .modal-card {
+    width: 100%;
+    max-width: none;
+    max-height: 92vh;
+    border-radius: 18px 18px 0 0;
+    padding: 18px 16px 22px;
+  }
+  .form-row-2,
+  .form-row-3 {
+    grid-template-columns: 1fr;
+  }
+  .share-with-list {
+    max-height: 180px;
+  }
+  .demo-panel {
+    width: auto;
+    left: 12px !important;
+    right: 12px !important;
+    bottom: 12px !important;
+    top: auto !important;
+    max-height: min(48vh, 360px);
+  }
+  .demo-actions {
+    flex-wrap: wrap;
+  }
+  .demo-actions .btn {
+    flex: 1 1 calc(50% - 8px);
   }
 }
 
@@ -2611,12 +2737,36 @@ textarea {
 
 @media (max-width: 600px) {
   .stats-row {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr 1fr;
   }
   .task-filter-bar {
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .task-filter-bar > * {
+    width: 100%;
+  }
+  .search-wrap {
+    min-width: 0;
   }
   .dept-badge, .product-badge, .priority-badge, .due-badge, .shared-badge-empty { display: none; }
+  .quick-add-bar,
+  .tm-wrapper,
+  .gantt-global-layout,
+  .reminders-layout,
+  .projects-full-layout {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .quick-add-input-row {
+    padding: 12px;
+  }
+  .quick-add-input-row input {
+    font-size: 0.95rem;
+  }
+  .calendar-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ── Global Gantt View ─────────────────────────────── */
