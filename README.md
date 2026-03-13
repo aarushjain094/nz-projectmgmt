@@ -14,42 +14,8 @@ Working on:
 - Google / Outlook Calendar Integration
 - Reminder emails
 
-## Run
-
-```bash
-npm install
-npm run dev
-```
-
-Open `http://localhost:3000`.
-
-## Demo Users
-
-- Manager: `manager@nyalazone.internal` / `demo123`
-- Member: `member@nyalazone.internal` / `demo123`
-
-## Email
-
-Set SMTP variables (see `.env.example`) before starting server:
-
-- `SMTP_HOST`
-- `SMTP_PORT`
-- `SMTP_USER`
-- `SMTP_PASS`
-- `SMTP_FROM`
-- `APP_URL`
-
-Reminder schedule:
-- 48h before due date
-- 24h before due date
-- Daily while overdue
-
-Registration behavior:
-- New self-signups are created as `pending`
-- All active managers receive an approval-request email when SMTP is configured
-- If SMTP is not configured, the server logs the pending approval instead
-
-If SMTP env vars are missing, reminders are skipped (app still works).
+Please visit at https://nz-project-management.fly.dev/ 
+This is an internal tool for Nyalazone
 
 ## Security And Persistence
 
@@ -58,15 +24,6 @@ If SMTP env vars are missing, reminders are skipped (app still works).
 - Sessions are persisted to `DATA_DIR/sessions.json`, so normal restarts do not sign everyone out.
 - Database writes are atomic and create rolling backups under `DATA_DIR/backups`.
 - On startup, the server will recover `db.json` from the newest valid same-volume backup if the primary file is corrupt.
-
-## Fly Notes
-
-These changes are designed to avoid extra Fly cost:
-
-- No new volumes
-- No managed database
-- No object storage
-- No extra always-on machines
 
 Operational limits:
 
