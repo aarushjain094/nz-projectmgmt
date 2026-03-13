@@ -69,14 +69,19 @@
             </div>
             <div class="login-field">
               <label class="login-label">What is your role?</label>
-              <select id="regRole" class="login-input" required>
+              <select id="regRole" class="login-input" required onchange="document.getElementById('regRoleCustomWrap').classList.toggle('hidden', this.value !== 'other')">
                 <option value="" disabled selected>Select your role</option>
                 <option value="Frontend Engineer">Frontend Engineer</option>
                 <option value="Backend Engineer">Backend Engineer</option>
                 <option value="Manager">Manager</option>
                 <option value="HR">HR</option>
                 <option value="Operations">Operations</option>
+                <option value="other">Other...</option>
               </select>
+            </div>
+            <div class="login-field hidden" id="regRoleCustomWrap">
+              <label class="login-label">Specify your role</label>
+              <input id="regRoleCustom" type="text" class="login-input" placeholder="e.g. Design, Product, QA…" />
             </div>
             <button type="submit" class="btn login-btn">Create Account</button>
           </form>
@@ -147,6 +152,7 @@
           </nav>
           <div class="navbar-right">
             <span id="welcomeText" class="nav-user"></span>
+            <label class="nav-timezone-label" for="topTimezoneSelect">TZ:</label>
             <select id="topTimezoneSelect" class="nav-timezone-select" title="Timezone"></select>
             <button id="changePasswordBtn" class="btn secondary small">Password</button>
             <button id="logoutBtn" class="btn ghost small">Logout</button>
@@ -260,6 +266,7 @@
               <section class="panel card">
                 <div class="panel-header">
                   <h3>Calendar</h3>
+                  <p class="muted mini">View all deadlines in one place.</p>
                   <div class="calendar-controls">
                     <select id="calendarRange">
                       <option value="week">Week</option>
@@ -274,7 +281,7 @@
                     <button id="exportIcsBtn" class="btn secondary small" type="button">Export .ics</button>
                   </div>
                 </div>
-                <p class="muted">Color shows importance.</p>
+                <p class="muted">View all deadlines in one place. Colors show importance.</p>
                 <div id="calendarGrid" class="calendar-grid"></div>
               </section>
 
@@ -518,7 +525,7 @@
             <input id="createTitle" type="text" placeholder="Enter task title" required />
             <label>Description</label>
             <textarea id="createDesc" placeholder="Add more details about this task" rows="3"></textarea>
-            <div class="form-row-3">
+            <div class="form-row-3 form-row-status">
               <div class="stack">
                 <label>Status</label>
                 <select id="createStatus">
@@ -591,6 +598,7 @@
                 <span class="muted mini">Loading teammates…</span>
               </div>
             </div>
+            <p class="create-task-error login-error"></p>
             <div class="modal-form-actions">
               <button type="button" id="createTaskCancelBtn" class="btn secondary">Cancel</button>
               <button type="submit" class="btn dark">Create Task</button>

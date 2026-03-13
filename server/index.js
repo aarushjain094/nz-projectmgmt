@@ -94,7 +94,6 @@ function sanitizeProjectSections(sections) {
 
 function taskAccessibleTo(task, user, scope = "view") {
   if (!user) return false;
-  if (user.role === "manager") return true;
   if (task.assigneeId === user.id || task.createdBy === user.id) return true;
   if (Array.isArray(task.sharedWith) && task.sharedWith.includes(user.id)) {
     return scope === "view" || scope === "edit";
@@ -256,6 +255,7 @@ app.post("/api/auth/register", rateLimit, (req, res) => {
   user.status = "pending";
   db.users.push(user);
   saveDb(db);
+  notifyManagersOfPendingSignup(user, db);
   res.status(201).json({ pending: true });
 });
 
@@ -700,6 +700,22 @@ app.patch("/api/tasks/:id", requireAuth, (req, res) => {
   res.json(enrichTask(task, db));
 });
 
+// DELETE bulk permanently delete tasks (must come before /:id to avoid route shadowing)
+app.delete("/api/tasks/bulk-permanent", requireAuth, (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: "ids required" });
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.userId);
+  const allowed = ids.filter((id) => {
+    const task = db.tasks.find((t) => t.id === id);
+    if (!task) return false;
+    return task.assigneeId === user.id || task.createdBy === user.id || user.role === "manager";
+  });
+  db.tasks = db.tasks.filter((t) => !allowed.includes(t.id));
+  saveDb(db);
+  res.json({ ok: true, deleted: allowed.length });
+});
+
 app.delete("/api/tasks/:id", requireAuth, (req, res) => {
   const db = readDb();
   const user = db.users.find((u) => u.id === req.userId);
@@ -751,7 +767,7 @@ app.delete("/api/tasks/:id/permanent", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/tasks", requireAuth, requireManager, (req, res) => {
+app.post("/api/tasks", requireAuth, (req, res) => {
   const {
     title,
     assigneeId,
@@ -762,7 +778,7 @@ app.post("/api/tasks", requireAuth, requireManager, (req, res) => {
     product = null,
     projectId = null,
     dependsOn = [],
-    description = "Assigned by manager",
+    description = "",
     sharedWith = [],
     section = null,
   } = req.body ?? {};
@@ -790,7 +806,7 @@ app.post("/api/tasks", requireAuth, requireManager, (req, res) => {
     assigneeId,
     createdBy: req.userId,
     dueDate: dueDate || null,
-    deadlineLocked: !!dueDate,
+    deadlineLocked: false,
     startDate,
     status: "todo",
     manualPriority: ["low", "medium", "high"].includes(manualPriority) ? manualPriority : null,
@@ -1301,6 +1317,28 @@ function createTransporter() {
     secure: port === 465,
     auth: { user, pass },
   });
+}
+
+function notifyManagersOfPendingSignup(user, db) {
+  const managers = db.users.filter((entry) => entry.role === "manager" && entry.status !== "pending" && entry.email);
+  if (!managers.length) return;
+
+  const reviewUrl = process.env.APP_URL || "http://localhost:3000";
+  const subject = `[Nyalazone] Approval needed for ${user.name}`;
+  const text = `A new signup is awaiting approval.\n\nName: ${user.name}\nEmail: ${user.email}\nRequested role: ${user.teamRole || "Unspecified"}\nCreated: ${user.createdAt}\n\nReview pending requests: ${reviewUrl}\n`;
+  const transport = createTransporter();
+
+  if (transport) {
+    transport.sendMail({
+      from: process.env.SMTP_FROM || "nyalazone-tool@internal.local",
+      to: managers.map((entry) => entry.email).join(", "),
+      subject,
+      text,
+    }).catch((err) => console.error("Pending approval email failed:", err?.message || err));
+    return;
+  }
+
+  console.log(`[PENDING APPROVAL] ${user.email} awaiting approval. Notify: ${managers.map((entry) => entry.email).join(", ")}`);
 }
 
 function alreadySentRecently(history, type, now) {

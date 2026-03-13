@@ -20,6 +20,8 @@ const state = {
   createTaskPrefillSection: null,
   managerFilter: { product: "", projectId: "", role: "", teamRoleFilter: "", teamSort: "role" },
   teamTasks: { outstanding: [], overdue: [], done: [] },
+  deletedSelectMode: false,
+  deletedSelected: new Set(),
 };
 
 const loginView = document.getElementById("loginView");
@@ -296,6 +298,7 @@ function bindEvents() {
   createDurationInput?.addEventListener("input", syncCreateTaskDates);
   createDurationInput?.addEventListener("change", syncCreateTaskDates);
   createDueInput?.addEventListener("input", onCreateDueInput);
+  createDueInput?.addEventListener("change", onCreateDueInput);
   createProjectSelect?.addEventListener("change", () => {
     syncCreateTaskSectionField(createProjectSelect.value || null).catch(() => {});
   });
@@ -416,6 +419,13 @@ function bindEvents() {
       else if (action === "edit") await openEditModal(id);
       return;
     }
+    // Click anywhere on the row (not on interactive elements) opens edit
+    const row = e.target.closest(".task-row");
+    if (row && !e.target.closest("input, select, button, label")) {
+      const id = row.querySelector("[data-action='edit']")?.getAttribute("data-id");
+      if (id) await openEditModal(id);
+      return;
+    }
     const restoreBtn = e.target.closest("[data-restore-id]");
     if (restoreBtn) {
       await api(`/api/tasks/${restoreBtn.dataset.restoreId}/restore`, { method: "PATCH" });
@@ -427,6 +437,44 @@ function bindEvents() {
       await api(`/api/tasks/${permDeleteBtn.dataset.permDeleteId}/permanent`, { method: "DELETE" });
       await loadMyWork();
       return;
+    }
+    // Deleted select mode
+    if (e.target.id === "deletedEnterSelectBtn") {
+      state.deletedSelectMode = true;
+      state.deletedSelected.clear();
+      renderTaskTable();
+      return;
+    }
+    if (e.target.id === "deletedCancelSelectBtn") {
+      state.deletedSelectMode = false;
+      state.deletedSelected.clear();
+      renderTaskTable();
+      return;
+    }
+    if (e.target.id === "deletedMassDeleteBtn" && state.deletedSelected.size > 0) {
+      const ids = Array.from(state.deletedSelected);
+      await api("/api/tasks/bulk-permanent", { method: "DELETE", body: JSON.stringify({ ids }) });
+      state.deletedSelectMode = false;
+      state.deletedSelected.clear();
+      await loadMyWork();
+      return;
+    }
+  });
+  // Deleted task checkboxes (change event)
+  taskTableBody.addEventListener("change", (e) => {
+    const cb = e.target.closest(".deleted-select-cb");
+    if (cb) {
+      const id = cb.dataset.deletedId;
+      if (cb.checked) state.deletedSelected.add(id);
+      else state.deletedSelected.delete(id);
+      renderTaskTable();
+      return;
+    }
+    if (e.target.id === "deletedSelectAll") {
+      const filtered = applyTaskFilters();
+      if (e.target.checked) filtered.forEach((t) => state.deletedSelected.add(t.id));
+      else state.deletedSelected.clear();
+      renderTaskTable();
     }
   });
   projectGrid?.addEventListener("click", async (e) => {
@@ -463,7 +511,7 @@ function bindEvents() {
     if (!el) return;
     const action = el.getAttribute("data-action");
     const id = el.getAttribute("data-id");
-    if (action === "complete") await updateTaskStatus(id, "done");
+    if (action === "complete") await updateTaskStatus(id, el.checked ? "done" : "todo");
     else if (action === "status") await updateTaskStatus(id, el.value);
   });
   teamSettings?.addEventListener("click", async (e) => {
@@ -530,6 +578,11 @@ function bindEvents() {
 
   // Calendar item clicks
   calendarGrid.addEventListener("click", (e) => {
+    const deleteBtn = e.target.closest("[data-calendar-delete-task]");
+    if (deleteBtn) {
+      deleteTask(deleteBtn.getAttribute("data-calendar-delete-task"));
+      return;
+    }
     const projectItem = e.target.closest("[data-project-id]");
     if (projectItem) { openProjectDetail(projectItem.getAttribute("data-project-id")); return; }
     const item = e.target.closest("[data-task-id]");
@@ -611,9 +664,12 @@ async function onRegister(e) {
   const email = document.getElementById("regEmail").value.trim();
   const password = document.getElementById("regPassword").value;
   const confirm = document.getElementById("regConfirm").value;
-  const companyRole = document.getElementById("regRole").value;
+  const roleSelect = document.getElementById("regRole").value;
+  const companyRole = roleSelect === "other"
+    ? document.getElementById("regRoleCustom").value.trim()
+    : roleSelect;
   if (password !== confirm) { err.textContent = "Passwords don't match"; return; }
-  if (!companyRole) { err.textContent = "Please select your role"; return; }
+  if (!companyRole) { err.textContent = "Please select or enter your role"; return; }
   try {
     const result = await api("/api/auth/register", {
       method: "POST",
@@ -830,7 +886,17 @@ function syncCreateTaskDates() {
 }
 
 function onCreateDueInput() {
-  if (createDurationInput) createDurationInput.value = "";
+  if (!createDueInput || !createDurationInput || !createStartInput) return;
+  const start = createStartInput.value;
+  const due = createDueInput.value;
+  if (start && due) {
+    const startMs = new Date(start + "T00:00:00").getTime();
+    const dueMs = new Date(due + "T00:00:00").getTime();
+    const days = Math.round((dueMs - startMs) / (1000 * 60 * 60 * 24));
+    createDurationInput.value = days > 0 ? days : "";
+  } else {
+    createDurationInput.value = "";
+  }
 }
 
 function setActiveTab(tab) {
@@ -1391,6 +1457,8 @@ function renderTaskTable() {
 
 function renderDeletedTaskTable(tasks) {
   if (!tasks.length) {
+    state.deletedSelectMode = false;
+    state.deletedSelected.clear();
     taskTableBody.innerHTML = `
       <div class="task-empty-state">
         <p>No recently deleted tasks</p>
@@ -1399,21 +1467,51 @@ function renderDeletedTaskTable(tasks) {
     return;
   }
 
+  const selectMode = state.deletedSelectMode;
+  const selected = state.deletedSelected;
+  const selectedCount = selected.size;
+  const allChecked = tasks.length > 0 && tasks.every((t) => selected.has(t.id));
+
+  const toolbar = `
+    <div class="deleted-toolbar">
+      ${selectMode ? `
+        <label class="deleted-select-all-label">
+          <input type="checkbox" id="deletedSelectAll" ${allChecked ? "checked" : ""} />
+          <span>Select All</span>
+        </label>
+        <button class="btn alert small" id="deletedMassDeleteBtn" ${selectedCount === 0 ? "disabled" : ""} type="button">
+          Delete Selected${selectedCount > 0 ? ` (${selectedCount})` : ""}
+        </button>
+        <button class="btn ghost small" id="deletedCancelSelectBtn" type="button">Cancel</button>
+      ` : `
+        <button class="btn secondary small" id="deletedEnterSelectBtn" type="button">Select</button>
+      `}
+    </div>`;
+
   const now = new Date();
-  taskTableBody.innerHTML = tasks.map((task) => {
+  const rows = tasks.map((task) => {
     const deletedDate = task.deletedAt ? new Date(task.deletedAt) : null;
     const daysAgo = deletedDate ? Math.floor((now - deletedDate) / (1000 * 60 * 60 * 24)) : 0;
     const daysLeft = deletedDate ? Math.max(0, 7 - daysAgo) : 0;
     return `
-      <div class="task-row">
+      <div class="task-row ${selectMode && selected.has(task.id) ? "task-row-selected" : ""}">
+        ${selectMode ? `
+          <label class="task-row-check">
+            <input type="checkbox" class="deleted-select-cb" data-deleted-id="${task.id}" ${selected.has(task.id) ? "checked" : ""} />
+          </label>
+        ` : ""}
         <div class="task-row-main">
           <strong class="task-row-title" style="cursor:default;">${escapeHtml(task.title)}</strong>
           <span class="task-row-sub">Deleted ${daysAgo === 0 ? "today" : `${daysAgo} day${daysAgo === 1 ? "" : "s"} ago`} · Auto-deletes in ${daysLeft} day${daysLeft === 1 ? "" : "s"}</span>
         </div>
-        <button class="btn secondary small" data-restore-id="${task.id}" type="button">Restore</button>
-        <button class="btn ghost small" data-perm-delete-id="${task.id}" type="button">Delete Forever</button>
+        ${!selectMode ? `
+          <button class="btn secondary small" data-restore-id="${task.id}" type="button">Restore</button>
+          <button class="btn ghost small" data-perm-delete-id="${task.id}" type="button">Delete Forever</button>
+        ` : ""}
       </div>`;
   }).join("");
+
+  taskTableBody.innerHTML = toolbar + rows;
 }
 
 // ── Auto-categorize ───────────────────────────────────
@@ -1752,8 +1850,8 @@ async function openCreateTaskModal(projectIdOverride = null, sectionOverride = n
   populateProjectSelects();
   if (projectIdOverride) createProjectSelect.value = projectIdOverride;
   await syncCreateTaskSectionField(projectIdOverride || createProjectSelect.value || null, sectionOverride);
-  createProjectField?.classList.toggle("hidden", !!projectIdOverride);
-  createProductField?.classList.toggle("hidden", !!projectIdOverride);
+  createProjectField?.classList.remove("hidden");
+  createProductField?.classList.remove("hidden");
   autoCategoryHint.textContent = "";
   shareWithList.innerHTML = `<span class="muted mini">Loading…</span>`;
   createTaskModal.classList.remove("hidden");
@@ -1804,6 +1902,9 @@ function closeCreateTaskModal() {
 
 async function onCreateTask(event) {
   event.preventDefault();
+  const submitBtn = event.target.querySelector('[type="submit"]');
+  const origText = submitBtn?.textContent;
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
   const title = document.getElementById("createTitle").value.trim();
   const dept = document.getElementById("createDept").value;
   const priority = document.getElementById("createPriority").value;
@@ -1815,9 +1916,9 @@ async function onCreateTask(event) {
   const description = document.getElementById("createDesc").value.trim();
   const projectId = createProjectSelect.value;
   if (!title) return;
-  const effectiveProjectId = state.createTaskPrefillProjectId || projectId;
+  const effectiveProjectId = projectId || null;
   const effectiveSection = effectiveProjectId ? (createSectionSelect?.value || state.createTaskPrefillSection || null) : null;
-  const effectiveProduct = state.createTaskPrefillProjectId ? null : (product || null);
+  const effectiveProduct = effectiveProjectId ? null : (product || null);
   const resolvedStartDate = `${startDate}T09:00:00.000Z`;
   const resolvedDueDate = dueDate
     ? toEndOfDayIso(dueDate)
@@ -1825,51 +1926,57 @@ async function onCreateTask(event) {
       ? toEndOfDayIso(getCreateTaskDueValue(startDate, duration))
       : null;
 
-  if (state.editingTaskId) {
-    // Edit mode: PATCH existing task
-    const editingTaskId = state.editingTaskId;
-    const sharedWith = Array.from(shareWithList.querySelectorAll(".share-checkbox:checked")).map((el) => el.value);
-    await api(`/api/tasks/${editingTaskId}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        title,
-        department: dept || null,
-        product: effectiveProduct,
-        description,
-        manualPriority: priority,
-        startDate: resolvedStartDate,
-        dueDate: resolvedDueDate,
-        status,
-        projectId: effectiveProjectId || null,
-        section: effectiveSection,
-        sharedWith,
-      }),
-    });
-    closeCreateTaskModal();
-    await refreshTaskViews(editingTaskId);
-  } else {
-    // Create mode
-    const sharedWith = Array.from(shareWithList.querySelectorAll(".share-checkbox:checked")).map((el) => el.value);
-    await api("/api/tasks/parse", {
-      method: "POST",
-      body: JSON.stringify({
-        text: title,
-        department: dept || null,
-        product: effectiveProduct,
-        description,
-        manualPriority: priority,
-        startDate: resolvedStartDate,
-        dueDate: resolvedDueDate,
-        status,
-        sharedWith,
-        projectId: effectiveProjectId || null,
-        section: effectiveSection,
-      }),
-    });
-    const returnProjectId = state.createTaskPrefillProjectId;
-    closeCreateTaskModal();
-    await refreshTaskViews();
-    if (returnProjectId) await openProjectDetail(returnProjectId);
+  try {
+    if (state.editingTaskId) {
+      // Edit mode: PATCH existing task
+      const editingTaskId = state.editingTaskId;
+      const sharedWith = Array.from(shareWithList.querySelectorAll(".share-checkbox:checked")).map((el) => el.value);
+      await api(`/api/tasks/${editingTaskId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title,
+          department: dept || null,
+          product: effectiveProduct,
+          description,
+          manualPriority: priority,
+          startDate: resolvedStartDate,
+          dueDate: resolvedDueDate,
+          status,
+          projectId: effectiveProjectId || null,
+          section: effectiveSection,
+          sharedWith,
+        }),
+      });
+      closeCreateTaskModal();
+      await refreshTaskViews(editingTaskId);
+    } else {
+      // Create mode
+      const sharedWith = Array.from(shareWithList.querySelectorAll(".share-checkbox:checked")).map((el) => el.value);
+      await api("/api/tasks/parse", {
+        method: "POST",
+        body: JSON.stringify({
+          text: title,
+          department: dept || null,
+          product: effectiveProduct,
+          description,
+          manualPriority: priority,
+          startDate: resolvedStartDate,
+          dueDate: resolvedDueDate,
+          status,
+          sharedWith,
+          projectId: effectiveProjectId || null,
+          section: effectiveSection,
+        }),
+      });
+      const returnProjectId = state.createTaskPrefillProjectId;
+      closeCreateTaskModal();
+      await refreshTaskViews();
+      if (returnProjectId) await openProjectDetail(returnProjectId);
+    }
+  } catch (err) {
+    const errEl = event.target.querySelector(".create-task-error");
+    if (errEl) errEl.textContent = err.message || "Failed to save task. Please try again.";
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = origText; }
   }
 }
 
@@ -2128,21 +2235,36 @@ function renderViewTeam(users, projects, filters = { teamRoleFilter: "", teamSor
     container.innerHTML = `<p class="muted mini">No team members yet.</p>`;
     return;
   }
-  container.innerHTML = members.map((u) => {
-    const assigned = projects.filter((p) => (p.memberIds || []).includes(u.id));
-    return `<div class="view-team-card">
-      <div class="view-team-identity">
-        <div class="view-team-avatar">${escapeHtml((u.name || "?")[0].toUpperCase())}</div>
-        <div class="view-team-info">
-          <strong>${escapeHtml(u.name)}</strong>
-          <p class="muted mini">${escapeHtml(u.email)}</p>
-        </div>
-        <span class="share-user-role">${escapeHtml(u.teamRole || u.role)}</span>
-      </div>
-      ${assigned.length ? `<div class="view-team-projects">${assigned.map((p) => `<span class="view-team-project-tag">${escapeHtml(p.title)}</span>`).join("")}</div>`
-        : `<p class="muted mini" style="margin:6px 0 0">No projects assigned</p>`}
-    </div>`;
-  }).join("");
+  // Group by role
+  const roleGroups = new Map();
+  members.forEach((u) => {
+    const label = getShareableRoleLabel(u);
+    if (!roleGroups.has(label)) roleGroups.set(label, []);
+    roleGroups.get(label).push(u);
+  });
+  container.innerHTML = Array.from(roleGroups.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([role, group]) => {
+      const cards = group.map((u) => {
+        const assigned = projects.filter((p) => (p.memberIds || []).includes(u.id));
+        return `<div class="view-team-card" title="${escapeHtml(u.email)}">
+          <div class="view-team-identity">
+            <div class="view-team-avatar">${escapeHtml((u.name || "?")[0].toUpperCase())}</div>
+            <div class="view-team-info">
+              <strong>${escapeHtml(u.name)}</strong>
+              <p class="muted mini">${escapeHtml(u.email)}</p>
+            </div>
+          </div>
+          ${assigned.length
+            ? `<div class="view-team-projects">${assigned.map((p) => `<span class="view-team-project-tag">${escapeHtml(p.title)}</span>`).join("")}</div>`
+            : `<p class="muted mini" style="margin:0">No projects</p>`}
+        </div>`;
+      }).join("");
+      return `<div class="view-team-role-group">
+        <span class="view-team-role-label">${escapeHtml(role)} (${group.length})</span>
+        <div class="view-team-role-row">${cards}</div>
+      </div>`;
+    }).join("");
 }
 
 async function onAssignTask(event) {
@@ -2606,6 +2728,7 @@ function renderCalendar(events, from, to, projects = []) {
       const importanceClass = `importance-${event.importanceLevel || "low"}`;
       return `
         <div class="calendar-item ${importanceClass} ${event.status === "done" ? "done" : ""}" data-task-id="${event.id}" style="cursor:pointer" title="Click to view details">
+          <button class="calendar-item-delete task-delete-btn" data-calendar-delete-task="${event.id}" type="button" title="Delete task">✕</button>
           <strong>${escapeHtml(event.title)}</strong>
           <p>${escapeHtml(event.assigneeName)} | ${capitalizeTaskStatus(event.status)}</p>
         </div>`;
@@ -3116,12 +3239,41 @@ function renderSectionPills() {
   const sections = [...new Set([...state.projectDetail.sections, ...state.projectDetail.tasks.map((t) => t.section).filter(Boolean)])];
   const active = state.projectDetail.activeSection || "";
   pills.innerHTML = sections.map((s) => `
-    <button class="pd-section-pill ${active === s ? "active" : ""}" data-section="${escapeHtml(s)}" type="button">${escapeHtml(s)}</button>
+    <span class="pd-section-pill-wrap">
+      <button class="pd-section-pill ${active === s ? "active" : ""}" data-section="${escapeHtml(s)}" type="button">${escapeHtml(s)}</button>
+      <button class="pd-section-delete" data-delete-section="${escapeHtml(s)}" type="button" title="Delete section">×</button>
+    </span>
   `).join("") + (sections.length ? `<button class="pd-section-pill ${!active ? "active" : ""}" data-section="" type="button">All</button>` : "");
+
   pills.querySelectorAll(".pd-section-pill").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.projectDetail.activeSection = btn.dataset.section;
       renderProjectPlanner();
+    });
+  });
+
+  pills.querySelectorAll(".pd-section-delete").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const name = btn.dataset.deleteSection;
+      if (!state.projectDetail.project) return;
+      const nextSections = state.projectDetail.sections.filter((s) => s !== name);
+      try {
+        const updatedProject = await api(`/api/projects/${state.projectDetail.project.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ sections: nextSections }),
+        });
+        state.projectDetail.project = { ...state.projectDetail.project, ...updatedProject };
+        state.projectDetail.sections = nextSections;
+        // Unassign tasks from deleted section
+        state.projectDetail.tasks = state.projectDetail.tasks.map((t) =>
+          t.section === name ? { ...t, section: null } : t
+        );
+        if (state.projectDetail.activeSection === name) state.projectDetail.activeSection = "";
+        renderProjectPlanner();
+      } catch (err) {
+        console.error("Failed to delete section", err);
+      }
     });
   });
 }
@@ -3160,7 +3312,7 @@ function bindSectionManagement() {
       }
       state.projectDetail.project = { ...state.projectDetail.project, ...updatedProject };
       state.projectDetail.sections = nextSections;
-      state.projectDetail.activeSection = name;
+      state.projectDetail.activeSection = "";
       renderProjectPlanner();
     // Pre-fill quick-add with section context
     if (projectQuickAddInput) {
