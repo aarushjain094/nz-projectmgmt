@@ -33,9 +33,19 @@ function purgeOldDeletedTasks() {
 }
 
 purgeOldDeletedTasks();
-setInterval(purgeOldDeletedTasks, 60 * 60 * 1000);
+const deletedTaskPurgeInterval = setInterval(purgeOldDeletedTasks, 60 * 60 * 1000);
+deletedTaskPurgeInterval.unref();
 
 const sessions = new Map();
+
+function invalidateSessionsForUser(userId, exceptToken = null) {
+  if (!userId) return;
+  for (const [token, sessionUserId] of sessions.entries()) {
+    if (sessionUserId === userId && token !== exceptToken) {
+      sessions.delete(token);
+    }
+  }
+}
 
 // Simple in-memory rate limiter for auth endpoints
 const authAttempts = new Map();
@@ -380,6 +390,7 @@ app.post("/api/auth/reset-password", (req, res) => {
   user.password = hashPassword(password);
   user.passwordResetToken = null;
   user.passwordResetExpiry = null;
+  invalidateSessionsForUser(user.id);
   saveDb(db);
   res.json({ ok: true });
 });
@@ -399,6 +410,7 @@ app.patch("/api/auth/change-password", requireAuth, (req, res) => {
     return res.status(401).json({ error: "Current password is incorrect" });
   }
   user.password = hashPassword(newPassword);
+  invalidateSessionsForUser(user.id);
   saveDb(db);
   res.json({ ok: true });
 });
@@ -708,7 +720,7 @@ app.delete("/api/tasks/bulk-permanent", requireAuth, (req, res) => {
   const user = db.users.find((u) => u.id === req.userId);
   const allowed = ids.filter((id) => {
     const task = db.tasks.find((t) => t.id === id);
-    if (!task) return false;
+    if (!task || !task.deletedAt) return false;
     return task.assigneeId === user.id || task.createdBy === user.id || user.role === "manager";
   });
   db.tasks = db.tasks.filter((t) => !allowed.includes(t.id));
@@ -759,6 +771,9 @@ app.delete("/api/tasks/:id/permanent", requireAuth, (req, res) => {
   const idx = db.tasks.findIndex((t) => t.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: "Task not found" });
   const task = db.tasks[idx];
+  if (!task.deletedAt) {
+    return res.status(400).json({ error: "Task must be soft-deleted before permanent deletion" });
+  }
   if (task.assigneeId !== user.id && task.createdBy !== user.id && user.role !== "manager") {
     return res.status(403).json({ error: "Forbidden" });
   }
@@ -767,7 +782,7 @@ app.delete("/api/tasks/:id/permanent", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/tasks", requireAuth, (req, res) => {
+app.post("/api/tasks", requireAuth, requireManager, (req, res) => {
   const {
     title,
     assigneeId,
@@ -1223,7 +1238,7 @@ function escapeIcs(value) {
 
 function startReminderScheduler() {
   const everyMinuteMs = 60 * 1000;
-  setInterval(async () => {
+  const reminderInterval = setInterval(async () => {
     const db = readDb();
     const transport = createTransporter();
     if (!transport) {
@@ -1271,6 +1286,7 @@ function startReminderScheduler() {
     }
     saveDb(db);
   }, everyMinuteMs);
+  reminderInterval.unref();
 }
 
 // ── Password hashing ─────────────────────────────────

@@ -15,7 +15,7 @@
 
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, scryptSync } from "node:crypto";
@@ -115,7 +115,7 @@ after(() => {
 // ── Helper: register a new user and have manager approve them ──────────────
 async function registerAndApprove(email, password, name = "New Member") {
   const reg = await req("POST", `${base}/api/auth/register`, { email, password, name, companyRole: "Frontend Engineer" });
-  assert.equal(reg.status, 200, `Register failed: ${JSON.stringify(reg.body)}`);
+  assert.equal(reg.status, 201, `Register failed: ${JSON.stringify(reg.body)}`);
   assert.equal(reg.body.pending, true, "Registered user should be pending");
 
   const pending = await req("GET", `${base}/api/users/pending`, null, mgrToken);
@@ -131,6 +131,11 @@ async function registerAndApprove(email, password, name = "New Member") {
   return { id: user.id, token: login.body.token };
 }
 
+function readUserById(userId) {
+  const db = JSON.parse(readFileSync(join(testDataDir, "db.json"), "utf8"));
+  return db.users.find((user) => user.id === userId) || null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTH: Registration
 // ─────────────────────────────────────────────────────────────────────────────
@@ -139,12 +144,12 @@ describe("Auth: Registration", () => {
   test("new user registers → status is pending, cannot log in yet", async () => {
     const email = `pending_${uid()}@test.com`;
     const reg = await req("POST", `${base}/api/auth/register`, { email, password: "Valid123", name: "Pending User", companyRole: "HR" });
-    assert.equal(reg.status, 200);
+    assert.equal(reg.status, 201);
     assert.equal(reg.body.pending, true);
 
     // Pending user cannot log in before approval
     const login = await req("POST", `${base}/api/auth/login`, { email, password: "Valid123" });
-    assert.equal(login.status, 401, "Pending user must not be able to log in before approval");
+    assert.equal(login.status, 403, "Pending user must not be able to log in before approval");
   });
 
   test("manager approves pending user → user can now log in", async () => {
@@ -172,7 +177,7 @@ describe("Auth: Registration", () => {
     const email = `dup_${uid()}@test.com`;
     await req("POST", `${base}/api/auth/register`, { email, password: "Pass123", name: "First", companyRole: "HR" });
     const dup = await req("POST", `${base}/api/auth/register`, { email, password: "Pass456", name: "Second", companyRole: "HR" });
-    assert.equal(dup.status, 400, "Duplicate email should return 400");
+    assert.equal(dup.status, 409, "Duplicate email should return 409");
   });
 
   test("password shorter than 6 characters is rejected", async () => {
@@ -553,6 +558,30 @@ describe("Tasks: Soft Delete & Restore", () => {
     const del = await req("DELETE", `${base}/api/tasks/${task.body.id}`, null, tokenB);
     assert.equal(del.status, 403);
   });
+
+  test("permanent delete requires the task to be soft-deleted first", async () => {
+    const task = await req("POST", `${base}/api/tasks/parse`, { text: "Permanent delete guard" }, tokenA);
+    const res = await req("DELETE", `${base}/api/tasks/${task.body.id}/permanent`, null, tokenA);
+    assert.equal(res.status, 400);
+  });
+
+  test("bulk permanent delete only removes soft-deleted tasks", async () => {
+    const activeTask = await req("POST", `${base}/api/tasks/parse`, { text: "Bulk active task" }, tokenA);
+    const deletedTask = await req("POST", `${base}/api/tasks/parse`, { text: "Bulk deleted task" }, tokenA);
+    await req("DELETE", `${base}/api/tasks/${deletedTask.body.id}`, null, tokenA);
+
+    const bulkDelete = await req("DELETE", `${base}/api/tasks/bulk-permanent`, {
+      ids: [activeTask.body.id, deletedTask.body.id],
+    }, tokenA);
+    assert.equal(bulkDelete.status, 200);
+    assert.equal(bulkDelete.body.deleted, 1, "Only soft-deleted tasks should be permanently removed");
+
+    const activeView = await req("GET", `${base}/api/tasks/${activeTask.body.id}`, null, tokenA);
+    assert.equal(activeView.status, 200, "Active task must remain after bulk permanent delete");
+
+    const deletedView = await req("GET", `${base}/api/tasks/${deletedTask.body.id}`, null, tokenA);
+    assert.equal(deletedView.status, 404, "Soft-deleted task should be permanently removed");
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -569,7 +598,7 @@ describe("20-Employee Signup", () => {
 
     for (const emp of employees) {
       const reg = await req("POST", `${base}/api/auth/register`, { ...emp, companyRole: "Frontend Engineer" });
-      assert.equal(reg.status, 200, `Registration failed for ${emp.email}: ${JSON.stringify(reg.body)}`);
+      assert.equal(reg.status, 201, `Registration failed for ${emp.email}: ${JSON.stringify(reg.body)}`);
       assert.equal(reg.body.pending, true);
     }
 
@@ -646,12 +675,14 @@ describe("Edge Cases", () => {
     const email = `sneak_mgr_${uid()}@test.com`;
     // Even if a role field is sent, register endpoint hardcodes role="member"
     const reg = await req("POST", `${base}/api/auth/register`, { email, password: "Valid123", name: "Sneaky Mgr", companyRole: "Manager", role: "manager" });
-    assert.equal(reg.status, 200);
+    assert.equal(reg.status, 201);
 
     const pending = await req("GET", `${base}/api/users/pending`, null, mgrToken);
     const user = pending.body.find((u) => u.email === email);
     assert.ok(user);
-    assert.equal(user.role, "member", "Public registration must always create a member, not a manager");
+
+    const persistedUser = readUserById(user.id);
+    assert.equal(persistedUser?.role, "member", "Public registration must always create a member, not a manager");
   });
 
   test("sessions are invalidated on logout", async () => {
@@ -669,12 +700,45 @@ describe("Edge Cases", () => {
   });
 
   test("change password — old password no longer works", async () => {
-    const { token } = await registerAndApprove(`pwchange_${uid()}@test.com`, "OldPass123");
+    const email = `pwchange_${uid()}@test.com`;
+    const { token } = await registerAndApprove(email, "OldPass123");
 
-    await req("PATCH", `${base}/api/auth/change-password`, { currentPassword: "OldPass123", newPassword: "NewPass456" }, token);
+    const change = await req("PATCH", `${base}/api/auth/change-password`, { currentPassword: "OldPass123", newPassword: "NewPass456" }, token);
+    assert.equal(change.status, 200);
 
-    // Re-login with old password should fail
-    const stale = await req("POST", `${base}/api/auth/login`, { email: `pwchange_${uid()}@test.com`, password: "OldPass123" });
+    const currentSession = await req("GET", `${base}/api/auth/me`, null, token);
+    assert.equal(currentSession.status, 401, "Password change should invalidate the current session");
+
+    const stale = await req("POST", `${base}/api/auth/login`, { email, password: "OldPass123" });
     assert.equal(stale.status, 401);
+
+    const fresh = await req("POST", `${base}/api/auth/login`, { email, password: "NewPass456" });
+    assert.equal(fresh.status, 200);
+  });
+
+  test("reset password invalidates existing sessions and allows the new password", async () => {
+    const email = `reset_${uid()}@test.com`;
+    const { token, id } = await registerAndApprove(email, "BeforeReset1");
+
+    const forgot = await req("POST", `${base}/api/auth/forgot-password`, { email });
+    assert.equal(forgot.status, 200);
+
+    const user = readUserById(id);
+    assert.ok(user?.passwordResetToken, "Forgot-password should persist a reset token");
+
+    const reset = await req("POST", `${base}/api/auth/reset-password`, {
+      token: user.passwordResetToken,
+      password: "AfterReset2",
+    });
+    assert.equal(reset.status, 200);
+
+    const oldSession = await req("GET", `${base}/api/auth/me`, null, token);
+    assert.equal(oldSession.status, 401, "Password reset should invalidate existing sessions");
+
+    const oldLogin = await req("POST", `${base}/api/auth/login`, { email, password: "BeforeReset1" });
+    assert.equal(oldLogin.status, 401);
+
+    const newLogin = await req("POST", `${base}/api/auth/login`, { email, password: "AfterReset2" });
+    assert.equal(newLogin.status, 200);
   });
 });

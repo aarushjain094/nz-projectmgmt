@@ -22,13 +22,15 @@ const state = {
   teamTasks: { outstanding: [], overdue: [], done: [] },
   deletedSelectMode: false,
   deletedSelected: new Set(),
+  editReturnToProject: null,
+  createTaskModalRequestId: 0,
+  createTaskSectionRequestId: 0,
 };
 
 const loginView = document.getElementById("loginView");
 const mainView = document.getElementById("mainView");
 const loginForm = document.getElementById("loginForm");
 const loginError = document.getElementById("loginError");
-const exportIcsBtn = document.getElementById("exportIcsBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const welcomeText = document.getElementById("welcomeText");
 const topTimezoneSelect = document.getElementById("topTimezoneSelect");
@@ -165,6 +167,7 @@ async function init() {
 
 function bindEvents() {
   loginForm.addEventListener("submit", onLogin);
+  document.addEventListener("keydown", onGlobalKeydown);
 
   // Auth view switching
   document.getElementById("showForgotBtn").addEventListener("click", () => showAuthView("forgotView"));
@@ -284,7 +287,6 @@ function bindEvents() {
   let pfMousedownTarget = null;
   projectFormModal.addEventListener("mousedown", (e) => { pfMousedownTarget = e.target; });
   projectFormModal.addEventListener("click", (e) => { if (e.target === projectFormModal && pfMousedownTarget === projectFormModal) closeProjectModal(); });
-  exportIcsBtn.addEventListener("click", exportIcs);
 
   initializeTimezoneOptions();
   psCancelBtn?.addEventListener("click", closeProfileSettings);
@@ -319,8 +321,9 @@ function bindEvents() {
   projectDetailModal.addEventListener("click", (e) => { if (e.target === projectDetailModal && pdMousedownTarget === projectDetailModal) projectDetailModal.classList.add("hidden"); });
   pdAddTaskBtn.addEventListener("click", () => {
     const projectId = state.projectDetail.project?.id || null;
+    const activeSection = state.projectDetail.activeSection || null;
     projectDetailModal.classList.add("hidden");
-    openCreateTaskModal(projectId);
+    openCreateTaskModal(projectId, activeSection);
   });
   pdSaveBtn.addEventListener("click", saveProjectPlan);
 
@@ -625,6 +628,35 @@ function bindEvents() {
         quickAddInput.focus();
       }
     });
+  }
+}
+
+function onGlobalKeydown(event) {
+  if (event.key !== "Escape") return;
+
+  const changePasswordModal = document.getElementById("changePasswordModal");
+  if (!createTaskModal.classList.contains("hidden")) {
+    closeCreateTaskModal();
+    return;
+  }
+  if (!taskDetailModal.classList.contains("hidden")) {
+    taskDetailModal.classList.add("hidden");
+    return;
+  }
+  if (!projectDetailModal.classList.contains("hidden")) {
+    projectDetailModal.classList.add("hidden");
+    return;
+  }
+  if (!projectFormModal.classList.contains("hidden")) {
+    closeProjectModal();
+    return;
+  }
+  if (profileSettingsModal && !profileSettingsModal.classList.contains("hidden")) {
+    closeProfileSettings();
+    return;
+  }
+  if (changePasswordModal && !changePasswordModal.classList.contains("hidden")) {
+    changePasswordModal.classList.add("hidden");
   }
 }
 
@@ -1807,15 +1839,18 @@ async function getProjectSections(projectId) {
     .sort((a, b) => a.localeCompare(b));
 }
 
-async function syncCreateTaskSectionField(projectId, selectedSection = null) {
+async function syncCreateTaskSectionField(projectId, selectedSection = null, knownSections = null) {
   if (!createSectionField || !createSectionSelect) return;
+  const requestId = ++state.createTaskSectionRequestId;
   if (!projectId) {
     createSectionField.classList.add("hidden");
     createSectionSelect.innerHTML = `<option value="">No section</option>`;
     createSectionSelect.value = "";
     return;
   }
-  const sections = await getProjectSections(projectId);
+  const sections = knownSections ?? await getProjectSections(projectId);
+  if (requestId !== state.createTaskSectionRequestId) return;
+  if ((createProjectSelect?.value || "") !== projectId) return;
   createSectionSelect.innerHTML = `<option value="">No section</option>${
     sections.map((section) => `<option value="${escapeHtml(section)}">${escapeHtml(section)}</option>`).join("")
   }`;
@@ -1835,7 +1870,18 @@ async function refreshTaskViews(taskId = null) {
   }
 }
 
+function resetCreateTaskSubmitState() {
+  const submitBtn = createTaskForm?.querySelector('[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = state.editingTaskId ? "Save Changes" : "Create Task";
+  }
+  const errEl = createTaskForm?.querySelector(".create-task-error");
+  if (errEl) errEl.textContent = "";
+}
+
 async function openCreateTaskModal(projectIdOverride = null, sectionOverride = null) {
+  const modalRequestId = ++state.createTaskModalRequestId;
   state.editingTaskId = null;
   state.createTaskPrefillProjectId = projectIdOverride;
   state.createTaskPrefillSection = sectionOverride;
@@ -1846,10 +1892,18 @@ async function openCreateTaskModal(projectIdOverride = null, sectionOverride = n
   createDurationInput.disabled = false;
   createDurationInput.title = "";
   createTaskForm.reset();
+  resetCreateTaskSubmitState();
   createStartInput.value = toDateInputValue(new Date().toISOString());
   populateProjectSelects();
   if (projectIdOverride) createProjectSelect.value = projectIdOverride;
-  await syncCreateTaskSectionField(projectIdOverride || createProjectSelect.value || null, sectionOverride);
+  // Use known sections directly if we're opening from the project detail view
+  const knownSections = projectIdOverride && state.projectDetail.project?.id === projectIdOverride
+    ? [...new Set([
+        ...(state.projectDetail.project?.sections || []),
+        ...state.projectDetail.sections,
+      ])].filter(Boolean).sort((a, b) => a.localeCompare(b))
+    : null;
+  await syncCreateTaskSectionField(projectIdOverride || createProjectSelect.value || null, sectionOverride, knownSections);
   createProjectField?.classList.remove("hidden");
   createProductField?.classList.remove("hidden");
   autoCategoryHint.textContent = "";
@@ -1859,6 +1913,7 @@ async function openCreateTaskModal(projectIdOverride = null, sectionOverride = n
   // Fetch users to populate share-with list
   try {
     const users = await api("/api/users");
+    if (modalRequestId !== state.createTaskModalRequestId || createTaskModal.classList.contains("hidden")) return;
     const others = users.filter((u) => u.id !== state.user?.id);
     if (!others.length) {
       shareWithList.innerHTML = `<span class="muted mini">No other users to share with.</span>`;
@@ -1867,6 +1922,7 @@ async function openCreateTaskModal(projectIdOverride = null, sectionOverride = n
       bindSharePicker(shareWithList, others, "share-checkbox");
     }
   } catch {
+    if (modalRequestId !== state.createTaskModalRequestId || createTaskModal.classList.contains("hidden")) return;
     shareWithList.innerHTML = `<span class="muted mini">Could not load users.</span>`;
   }
 
@@ -1885,10 +1941,14 @@ async function openCreateTaskModal(projectIdOverride = null, sectionOverride = n
 }
 
 function closeCreateTaskModal() {
+  state.createTaskModalRequestId += 1;
   createTaskModal.classList.add("hidden");
+  // Return to project detail if edit was triggered from there
+  const returnProjectId = state.editReturnToProject;
   state.editingTaskId = null;
   state.createTaskPrefillProjectId = null;
   state.createTaskPrefillSection = null;
+  state.editReturnToProject = null;
   createProjectField?.classList.remove("hidden");
   createProductField?.classList.remove("hidden");
   createSectionField?.classList.add("hidden");
@@ -1898,10 +1958,15 @@ function closeCreateTaskModal() {
   }
   const titleInput = document.getElementById("createTitle");
   if (titleInput) titleInput.oninput = null;
+  resetCreateTaskSubmitState();
+  if (returnProjectId) {
+    openProjectDetail(returnProjectId);
+  }
 }
 
 async function onCreateTask(event) {
   event.preventDefault();
+  resetCreateTaskSubmitState();
   const submitBtn = event.target.querySelector('[type="submit"]');
   const origText = submitBtn?.textContent;
   if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
@@ -1915,7 +1980,12 @@ async function onCreateTask(event) {
   const product = document.getElementById("createProduct").value;
   const description = document.getElementById("createDesc").value.trim();
   const projectId = createProjectSelect.value;
-  if (!title) return;
+  if (!title) {
+    const errEl = event.target.querySelector(".create-task-error");
+    if (errEl) errEl.textContent = "Title is required.";
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = origText; }
+    return;
+  }
   const effectiveProjectId = projectId || null;
   const effectiveSection = effectiveProjectId ? (createSectionSelect?.value || state.createTaskPrefillSection || null) : null;
   const effectiveProduct = effectiveProjectId ? null : (product || null);
@@ -1925,6 +1995,13 @@ async function onCreateTask(event) {
     : Number.isFinite(duration) && duration > 0
       ? toEndOfDayIso(getCreateTaskDueValue(startDate, duration))
       : null;
+  const errEl = event.target.querySelector(".create-task-error");
+
+  if (resolvedDueDate && new Date(resolvedDueDate).getTime() <= new Date(resolvedStartDate).getTime()) {
+    if (errEl) errEl.textContent = "Deadline must be after the start date.";
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = origText; }
+    return;
+  }
 
   try {
     if (state.editingTaskId) {
@@ -1974,7 +2051,6 @@ async function onCreateTask(event) {
       if (returnProjectId) await openProjectDetail(returnProjectId);
     }
   } catch (err) {
-    const errEl = event.target.querySelector(".create-task-error");
     if (errEl) errEl.textContent = err.message || "Failed to save task. Please try again.";
     if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = origText; }
   }
@@ -1985,9 +2061,14 @@ async function onCreateTask(event) {
 async function openEditModal(taskId) {
   const task = await api(`/api/tasks/${taskId}`);
   state.editingTaskId = taskId;
+  // Remember if we came from the project detail so we can return to it
+  state.editReturnToProject = !projectDetailModal.classList.contains("hidden")
+    ? state.projectDetail.project?.id || null
+    : null;
 
   document.getElementById("createTaskModalTitle").textContent = "Edit Task";
   document.querySelector("#createTaskForm .btn.dark").textContent = "Save Changes";
+  resetCreateTaskSubmitState();
 
   // Pre-fill fields
   document.getElementById("createTitle").value = task.title || "";
@@ -2209,13 +2290,9 @@ async function loadGlobalGantt() {
           body: JSON.stringify({ startDate: task.startDate, dueDate: task.dueDate }),
         });
       },
-    });
-    group.querySelectorAll(".pg-bar[data-task-id]").forEach((bar) => {
-      bar.addEventListener("dblclick", async () => {
-        const taskId = bar.dataset.taskId;
-        if (!taskId) return;
-        await openTaskDetail(taskId);
-      });
+      onTaskClick: async (task) => {
+        if (task.id) await openEditModal(task.id);
+      },
     });
   });
 }
@@ -3182,10 +3259,8 @@ function renderProjectPlanner() {
           return `
           <div class="pg-edit-row">
             <input class="pg-name-input project-task-name" type="text" data-task-idx="${idx}" value="${escapeHtml(task.title)}" />
-            <select class="pg-section-select" data-task-idx="${idx}">
-              <option value="">No section</option>
-              ${sections.map((s) => `<option value="${escapeHtml(s)}" ${task.section === s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
-            </select>
+            <input class="pg-section-input" type="text" list="pg-section-datalist-${idx}" data-task-idx="${idx}" value="${escapeHtml(task.section || "")}" placeholder="No section" />
+            <datalist id="pg-section-datalist-${idx}">${sections.map((s) => `<option value="${escapeHtml(s)}"></option>`).join("")}</datalist>
             <input class="pg-task-start-input" type="date" data-task-idx="${idx}" value="${toDateInputValue(task.startDate)}" />
             <input class="pg-task-due-input" type="date" data-task-idx="${idx}" value="${toDateInputValue(task.dueDate)}" />
             <select class="pg-task-status-select" data-task-idx="${idx}">
@@ -3226,6 +3301,9 @@ function renderProjectPlanner() {
   bindTimelinePlannerInteractions(pdPlanner, visibleTasks, rangeStart, rangeEnd, {
     saveStatusEl: pdSaveStatus,
     rowType: "task",
+    onTaskClick: async (task) => {
+      if (task.id) await openEditModal(task.id);
+    },
   });
   bindProjectPlannerEditRows();
   document.querySelector("#pdTitle [data-rename-project]")?.addEventListener("click", async (e) => {
@@ -3404,12 +3482,28 @@ function bindProjectPlannerEditRows() {
       state.projectDetail.tasks[Number(e.currentTarget.dataset.taskIdx)].status = e.currentTarget.value;
     });
   });
-  pdPlanner.querySelectorAll(".pg-section-select").forEach((select) => {
-    select.addEventListener("change", (e) => {
+  pdPlanner.querySelectorAll(".pg-section-input").forEach((input) => {
+    const commit = (e) => {
       const idx = Number(e.currentTarget.dataset.taskIdx);
-      state.projectDetail.tasks[idx].section = e.currentTarget.value || null;
+      const val = e.currentTarget.value.trim() || null;
+      state.projectDetail.tasks[idx].section = val;
+      // If it's a new section, add it to the project sections
+      if (val && !state.projectDetail.sections.includes(val)) {
+        const nextSections = [...state.projectDetail.sections, val];
+        state.projectDetail.sections = nextSections;
+        api(`/api/projects/${state.projectDetail.project.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ sections: nextSections }),
+        }).then((updated) => {
+          state.projectDetail.project = { ...state.projectDetail.project, ...updated };
+          const pi = state.projects.findIndex((p) => p.id === updated.id);
+          if (pi !== -1) state.projects[pi] = { ...state.projects[pi], ...updated };
+        }).catch(() => {});
+      }
       renderProjectPlanner();
-    });
+    };
+    input.addEventListener("change", commit);
+    input.addEventListener("blur", commit);
   });
   pdPlanner.querySelectorAll("[data-task-action='open']").forEach((button) => {
     button.addEventListener("click", async (e) => {
@@ -3568,6 +3662,7 @@ function bindTimelinePlannerInteractions(container, items, rangeStart, rangeEnd,
       const originalStart = startOfDay(new Date(item.startDate)).getTime();
       const originalDue = startOfDay(new Date(item.dueDate)).getTime();
       const totalMs = Math.max(rangeEnd.getTime() - rangeStart.getTime(), dayMs);
+      let hasDragged = false;
       bar.classList.add("is-dragging");
       event.preventDefault();
 
@@ -3580,6 +3675,7 @@ function bindTimelinePlannerInteractions(container, items, rangeStart, rangeEnd,
 
       function onMove(moveEvent) {
         const deltaDays = Math.round(((moveEvent.clientX - event.clientX) / trackRect.width) * (totalMs / dayMs));
+        if (deltaDays !== 0) hasDragged = true;
         let nextStart = originalStart;
         let nextDue = originalDue;
         if (dragMode === "move") {
@@ -3595,6 +3691,14 @@ function bindTimelinePlannerInteractions(container, items, rangeStart, rangeEnd,
 
       function onUp(upEvent) {
         const deltaDays = Math.round(((upEvent.clientX - event.clientX) / trackRect.width) * (totalMs / dayMs));
+        bar.classList.remove("is-dragging");
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        // Pure click (no drag): open edit modal
+        if (!hasDragged && typeof options.onTaskClick === "function") {
+          options.onTaskClick(item);
+          return;
+        }
         let nextStart = originalStart;
         let nextDue = originalDue;
         if (dragMode === "move") {
@@ -3606,10 +3710,7 @@ function bindTimelinePlannerInteractions(container, items, rangeStart, rangeEnd,
           nextDue = Math.max(originalDue + deltaDays * dayMs, originalStart + dayMs);
         }
         item.startDate = toPlannerStartIso(new Date(nextStart));
-       item.dueDate = toPlannerDueIso(new Date(nextDue));
-        bar.classList.remove("is-dragging");
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
+        item.dueDate = toPlannerDueIso(new Date(nextDue));
         if (typeof options.onChange === "function") options.onChange(item);
         if (options.rowType === "phase") renderPhasePlannerGantt();
         if (options.rowType === "task") renderProjectPlanner();

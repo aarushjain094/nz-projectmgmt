@@ -1363,6 +1363,10 @@ select {
   padding: 12px;
 }
 
+#createTaskModal {
+  z-index: 100;
+}
+
 .modal-card {
   width: min(440px, 100%);
   padding: 16px;
@@ -1601,10 +1605,10 @@ select {
 .pg-bar-row {
   display: flex;
   align-items: center;
-  padding: 10px 16px;
+  padding: 4px 16px;
   border-bottom: 1px solid #eef3fb;
   gap: 0;
-  min-height: 48px;
+  min-height: 36px;
 }
 
 .pg-bar-row:last-child {
@@ -1633,6 +1637,10 @@ button.pg-bar-row-label {
 
 button.pg-bar-row-label:hover {
   color: var(--primary);
+}
+
+.pg-bar:hover {
+  filter: brightness(1.1);
 }
 
 .pg-bar-track {
@@ -1769,9 +1777,19 @@ button.pg-bar-row-label:hover {
 }
 
 .pg-edit-row input[type="date"],
-.pg-edit-row select {
+.pg-edit-row select,
+.pg-section-input {
   font-size: 0.8rem;
   padding: 5px 6px;
+}
+
+.pg-section-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  font-family: inherit;
+  color: var(--ink);
 }
 
 .pg-delete-btn {
