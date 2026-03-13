@@ -1,13 +1,18 @@
-# Nyalazone Internal PM Prototype
+# Nyalazone Internal Project Management Tool
 
-Prototype implementing:
+This is a fully-functional, backend-supported tool that enables a small business (~100 employees) track all projects at once. You can consider this a lower-level version of Aha! or Confluence, but it includes the key functionality necessary for Nyalazone itself.
+
+Features:
 - Natural-language task intake (`Need to complete the demo frontend by Friday`)
 - Outstanding tasks sorted by necessity/importance (priority score)
 - Calendar view
-- Editable Gantt timeline
+- Editable Gantt timeline with editable sections. A project consists of sections that consists of tasks.
 - Manager view (team tasks + assignment)
-- Exportable calendar (`.ics`)
-- Real reminder emails via SMTP (when env is configured)
+- Role customization. Sharing can be sent to specific roles and / or people
+
+Working on:
+- Google / Outlook Calendar Integration
+- Reminder emails
 
 ## Run
 
